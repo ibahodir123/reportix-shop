@@ -25,6 +25,17 @@ import type { CartLine, Paginated, Register, Shift, Variant, ZReport } from "../
 
 const money = (n: number) => n.toLocaleString("ru-RU") + " сум";
 
+function createClientUuid() {
+  if (typeof globalThis.crypto?.randomUUID === "function") {
+    return globalThis.crypto.randomUUID();
+  }
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (char) => {
+    const random = Math.floor(Math.random() * 16);
+    const value = char === "x" ? random : (random & 0x3) | 0x8;
+    return value.toString(16);
+  });
+}
+
 // ──────────────────────────────────────────────────────────────────────────
 // Открытие смены
 // ──────────────────────────────────────────────────────────────────────────
@@ -139,7 +150,7 @@ function SaleScreen({ shift, onClosed }: { shift: Shift; onClosed: () => void })
         discount,
         paid_cash: paymentType === "card" ? 0 : paidCash,
         paid_card: paymentType === "cash" ? 0 : paidCard,
-        client_uuid: crypto.randomUUID(),
+        client_uuid: createClientUuid(),
         items: cart.map((l) => ({
           variant: l.variant.id,
           quantity: l.quantity,
