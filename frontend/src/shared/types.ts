@@ -34,3 +34,40 @@ export interface Paginated<T> {
   previous: string | null;
   results: T[];
 }
+
+export interface Register {
+  id: number;
+  branch: number;
+  warehouse: number;
+  name: string;
+  is_active: boolean;
+}
+
+export interface Shift {
+  id: number;
+  register: number;
+  cashier: number;
+  cashier_name: string;
+  status: string;
+  opened_at: string;
+  closed_at: string | null;
+  opening_cash: string;
+  closing_cash: string | null;
+}
+
+export interface ZReport {
+  shift_id: number;
+  sales_count: number;
+  revenue_total: string;
+  paid_card: string;
+  cash_collected: string;
+  opening_cash: string;
+  expected_cash: string;
+  closing_cash: string | null;
+}
+
+export interface CartLine {
+  variant: Variant;
+  quantity: number;
+  price: number;
+}

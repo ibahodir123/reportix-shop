@@ -1,4 +1,9 @@
-import { AppstoreOutlined, DashboardOutlined, ShopOutlined } from "@ant-design/icons";
+import {
+  AppstoreOutlined,
+  DashboardOutlined,
+  ShopOutlined,
+  ShoppingCartOutlined,
+} from "@ant-design/icons";
 import { Layout, Menu } from "antd";
 import { Link, Outlet, useLocation } from "react-router-dom";
 
@@ -6,6 +11,7 @@ const { Header, Sider, Content } = Layout;
 
 const items = [
   { key: "/dashboard", icon: <DashboardOutlined />, label: <Link to="/dashboard">Сводка</Link> },
+  { key: "/pos", icon: <ShoppingCartOutlined />, label: <Link to="/pos">Касса</Link> },
   { key: "/products", icon: <AppstoreOutlined />, label: <Link to="/products">Товары</Link> },
 ];
 

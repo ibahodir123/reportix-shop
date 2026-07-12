@@ -10,6 +10,7 @@ import "./index.css";
 
 import { AppLayout } from "./shared/Layout";
 import { DashboardPage } from "./pages/DashboardPage";
+import { PosPage } from "./pages/PosPage";
 import { ProductsPage } from "./pages/ProductsPage";
 
 const queryClient = new QueryClient();
@@ -21,6 +22,7 @@ const router = createBrowserRouter([
     children: [
       { index: true, element: <Navigate to="/dashboard" replace /> },
       { path: "dashboard", element: <DashboardPage /> },
+      { path: "pos", element: <PosPage /> },
       { path: "products", element: <ProductsPage /> },
     ],
   },
