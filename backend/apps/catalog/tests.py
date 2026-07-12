@@ -6,7 +6,7 @@ from rest_framework.test import APIClient
 from apps.inventory.models import Stock, StockMovement, Warehouse
 from apps.tenants.models import Branch, Membership, Tenant, User
 
-from .models import Product
+from .models import Product, Variant
 
 
 class QuickProductTests(TestCase):
@@ -21,7 +21,7 @@ class QuickProductTests(TestCase):
             tenant=self.tenant, branch=self.branch, name="Основной"
         )
         self.client = APIClient()
-        self.client.force_authenticate(self.user)
+        self.client.force_login(self.user)
 
     def test_create_with_stock_intake(self):
         resp = self.client.post(
@@ -75,8 +75,22 @@ class QuickProductTests(TestCase):
     def test_requires_tenant(self):
         other = User.objects.create_user(username="notenant", password="pass12345")
         client = APIClient()
-        client.force_authenticate(other)
+        client.force_login(other)
         resp = client.post(
             "/api/catalog/quick-product/", {"name": "X"}, format="json"
         )
         self.assertEqual(resp.status_code, 403)
+
+    def test_auto_sku_is_unique(self):
+        # Два товара без SKU получают разные автогенерированные артикулы.
+        for name in ("Товар1", "Товар2"):
+            resp = self.client.post(
+                "/api/catalog/quick-product/",
+                {"name": name, "sale_price": "1000"},
+                format="json",
+            )
+            self.assertEqual(resp.status_code, 201, resp.content)
+        skus = list(
+            Variant.objects.filter(tenant=self.tenant).values_list("sku", flat=True)
+        )
+        self.assertEqual(len(skus), len(set(skus)))

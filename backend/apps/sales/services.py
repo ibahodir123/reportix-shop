@@ -5,6 +5,7 @@ from django.db.models import Count, Sum
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
+from apps.common.db import lock_tenant
 from apps.inventory.models import StockMovement
 from apps.inventory.services import record_movement
 
@@ -73,9 +74,9 @@ def build_z_report(shift):
 
 
 def _next_sale_number(tenant):
+    # Вызывается под блокировкой тенанта (lock_tenant) — гонки номеров нет.
     last = (
-        Sale.objects.select_for_update()
-        .filter(tenant=tenant)
+        Sale.objects.filter(tenant=tenant)
         .order_by("-number")
         .values_list("number", flat=True)
         .first()
@@ -99,7 +100,12 @@ def create_sale(
     """
     Создаёт чек, фиксирует себестоимость и списывает товар со склада кассы
     (движение OUT на каждую позицию). Идемпотентно по client_uuid.
+
+    Операции тенанта сериализуются через lock_tenant — устраняет гонки
+    нумерации чеков и client_uuid при параллельных запросах.
     """
+    lock_tenant(tenant)
+
     if client_uuid:
         existing = Sale.objects.filter(tenant=tenant, client_uuid=client_uuid).first()
         if existing is not None:
@@ -146,10 +152,17 @@ def create_sale(
     if total < 0:
         raise ValidationError("Скидка превышает сумму чека.")
 
+    if paid_cash < 0 or paid_card < 0:
+        raise ValidationError("Суммы оплаты не могут быть отрицательными.")
+
     paid = paid_cash + paid_card
     if paid < total:
         raise ValidationError("Оплата меньше суммы чека.")
-    # Сдача возможна только с наличных.
+    # Переплата картой недопустима: сдачу дают только наличными, поэтому
+    # оплата картой не может превышать сумму чека. Это гарантирует, что
+    # change = paid - total ≤ paid_cash (сдача не превышает внесённые наличные).
+    if paid_card > total:
+        raise ValidationError("Оплата картой превышает сумму чека (переплата картой недопустима).")
     change = (paid - total).quantize(TWO)
 
     sale = Sale.objects.create(

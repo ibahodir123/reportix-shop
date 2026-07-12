@@ -1,4 +1,5 @@
-from django.test import SimpleTestCase, TestCase
+from django.core.files.uploadedfile import SimpleUploadedFile
+from django.test import SimpleTestCase, TestCase, override_settings
 from rest_framework.test import APIClient
 
 from apps.tenants.models import User
@@ -79,7 +80,7 @@ class VoiceApiTests(TestCase):
     def setUp(self):
         self.user = User.objects.create_user(username="u", password="pass12345")
         self.client = APIClient()
-        self.client.force_authenticate(self.user)
+        self.client.force_login(self.user)
 
     def test_parse_product_from_text(self):
         resp = self.client.post(
@@ -96,3 +97,11 @@ class VoiceApiTests(TestCase):
     def test_requires_audio_or_text(self):
         resp = self.client.post("/api/voice/parse-product/", {}, format="json")
         self.assertEqual(resp.status_code, 400)
+
+    @override_settings(VOICE_MAX_AUDIO_BYTES=10)
+    def test_audio_too_large_returns_413(self):
+        big = SimpleUploadedFile("a.webm", b"x" * 11, content_type="audio/webm")
+        resp = self.client.post(
+            "/api/voice/parse-product/", {"audio": big}, format="multipart"
+        )
+        self.assertEqual(resp.status_code, 413)

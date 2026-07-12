@@ -8,6 +8,7 @@ from apps.catalog.models import Product, Unit, Variant
 from apps.tenants.models import Branch, Membership, Tenant, User
 
 from .models import Receipt, Stock, StockMovement, Warehouse
+from .services import record_movement
 
 URL = "/api/inventory/receipts/"
 
@@ -33,7 +34,7 @@ class ReceiptApiTests(TestCase):
         )
 
         self.client = APIClient()
-        self.client.force_authenticate(self.user)
+        self.client.force_login(self.user)
 
     def _stock(self, variant):
         s = Stock.objects.filter(warehouse=self.warehouse, variant=variant).first()
@@ -139,10 +140,47 @@ class ReceiptApiTests(TestCase):
     def test_requires_tenant(self):
         other = User.objects.create_user(username="notenant", password="pass12345")
         client = APIClient()
-        client.force_authenticate(other)
+        client.force_login(other)
         resp = client.post(
             URL,
             {"warehouse": self.warehouse.id, "items": [{"variant": self.v1.id, "quantity": "1"}]},
             format="json",
         )
         self.assertEqual(resp.status_code, 403)
+
+
+class RecordMovementTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username="u", password="pass12345")
+        self.tenant = Tenant.objects.create(name="Магазин", owner=self.user)
+        self.branch = Branch.objects.create(tenant=self.tenant, name="Центр")
+        self.warehouse = Warehouse.objects.create(
+            tenant=self.tenant, branch=self.branch, name="Основной"
+        )
+        self.unit = Unit.objects.create(tenant=self.tenant, name="Штука", short_name="шт")
+        product = Product.objects.create(tenant=self.tenant, name="Товар", unit=self.unit)
+        self.variant = Variant.objects.create(
+            tenant=self.tenant, product=product, sku="A-1", purchase_price=Decimal("10")
+        )
+
+    def test_out_below_zero_raises_and_no_movement(self):
+        from apps.common.exceptions import InsufficientStock
+
+        record_movement(
+            tenant=self.tenant,
+            warehouse=self.warehouse,
+            variant=self.variant,
+            movement_type=StockMovement.TYPE_IN,
+            quantity=Decimal("3"),
+        )
+        with self.assertRaises(InsufficientStock):
+            record_movement(
+                tenant=self.tenant,
+                warehouse=self.warehouse,
+                variant=self.variant,
+                movement_type=StockMovement.TYPE_OUT,
+                quantity=Decimal("-5"),
+            )
+        stock = Stock.objects.get(warehouse=self.warehouse, variant=self.variant)
+        self.assertEqual(stock.quantity, Decimal("3.000"))
+        self.assertEqual(StockMovement.objects.count(), 1)  # только приход

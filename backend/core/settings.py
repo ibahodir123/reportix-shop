@@ -20,8 +20,13 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 environ.Env.read_env(os.path.join(BASE_DIR, ".env"))
 
-SECRET_KEY = env("SECRET_KEY", default="dev-insecure-change-me")
 DEBUG = env("DEBUG")
+
+# SECRET_KEY обязателен в production; небезопасный дефолт — только для DEBUG.
+from core.env_utils import get_secret_key  # noqa: E402
+
+SECRET_KEY = get_secret_key(env("SECRET_KEY", default=""), DEBUG)
+
 ALLOWED_HOSTS = env.list("ALLOWED_HOSTS", default=["localhost", "127.0.0.1", "backend"])
 
 _TESTING = "test" in sys.argv or any(a.startswith("test") for a in sys.argv)
@@ -139,7 +144,15 @@ REST_FRAMEWORK = {
     ],
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
     "PAGE_SIZE": 50,
+    # Троттлинг только для чувствительных точек через ScopedRateThrottle
+    # (глобальный троттлинг не включаем, чтобы не влиять на остальной API).
+    "DEFAULT_THROTTLE_RATES": {
+        "login": "5/min",
+    },
 }
+
+# Максимальный размер загружаемого голосового аудио (10 МБ) → 413.
+VOICE_MAX_AUDIO_BYTES = env.int("VOICE_MAX_AUDIO_BYTES", default=10 * 1024 * 1024)
 
 # --- Security --------------------------------------------------------------
 SESSION_COOKIE_HTTPONLY = True

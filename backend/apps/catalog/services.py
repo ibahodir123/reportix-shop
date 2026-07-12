@@ -5,6 +5,7 @@ from decimal import Decimal
 from django.db import transaction
 from rest_framework.exceptions import ValidationError
 
+from apps.common.db import lock_tenant
 from apps.inventory.models import StockMovement, Warehouse
 from apps.inventory.services import record_movement
 
@@ -52,7 +53,12 @@ def quick_create_product(*, tenant, data):
     """
     Создаёт Product + Variant и, если задано количество и склад, приходует
     товар движением IN. Возвращает созданный Product.
+
+    Операции тенанта сериализуются (lock_tenant) — устраняет гонку
+    автогенерации SKU при параллельных запросах.
     """
+    lock_tenant(tenant)
+
     unit = _resolve_unit(tenant, data.get("unit"))
     category = _resolve_fk(Category, tenant, data.get("category"), "category")
     brand = _resolve_fk(Brand, tenant, data.get("brand"), "brand")

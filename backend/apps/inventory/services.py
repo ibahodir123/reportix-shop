@@ -1,8 +1,10 @@
 from decimal import Decimal
 
 from django.db import transaction
-from django.db.models import F
 from rest_framework.exceptions import ValidationError
+
+from apps.common.db import lock_tenant
+from apps.common.exceptions import InsufficientStock
 
 from .models import Receipt, ReceiptItem, Stock, StockMovement
 
@@ -19,12 +21,30 @@ def record_movement(
     quantity,
     unit_cost=Decimal("0"),
     reference="",
+    allow_negative=False,
 ):
     """
-    Единственная точка изменения остатка: создаёт движение и атомарно
-    обновляет кэш Stock. quantity: положительное — приход, отрицательное — расход.
+    Единственная точка изменения остатка. quantity: положительное — приход,
+    отрицательное — расход.
+
+    Остаток блокируется (SELECT ... FOR UPDATE); проверка достаточности и
+    списание выполняются атомарно. Если расход уводит остаток в минус и
+    allow_negative=False — поднимается InsufficientStock (409); движение НЕ
+    создаётся (продажа в минус запрещена, частичных движений нет).
     """
     quantity = Decimal(quantity)
+
+    stock, _ = Stock.objects.select_for_update().get_or_create(
+        warehouse=warehouse,
+        variant=variant,
+        defaults={"quantity": Decimal("0")},
+    )
+    new_quantity = stock.quantity + quantity
+    if new_quantity < 0 and not allow_negative:
+        raise InsufficientStock(
+            f"Недостаточно остатка «{variant}»: есть {stock.quantity}, "
+            f"требуется {abs(quantity)}."
+        )
 
     movement = StockMovement.objects.create(
         tenant=tenant,
@@ -35,15 +55,8 @@ def record_movement(
         unit_cost=Decimal(unit_cost),
         reference=reference,
     )
-
-    stock, _ = Stock.objects.select_for_update().get_or_create(
-        warehouse=warehouse,
-        variant=variant,
-        defaults={"quantity": Decimal("0")},
-    )
-    stock.quantity = F("quantity") + quantity
+    stock.quantity = new_quantity
     stock.save(update_fields=["quantity"])
-    stock.refresh_from_db(fields=["quantity"])
 
     return movement
 
@@ -64,6 +77,9 @@ def create_receipt(
     record_movement и обновляет остаток. Всё в одной транзакции — при ошибке
     в любой строке откатывается целиком. Идемпотентно по client_uuid.
     """
+    # Сериализуем операции тенанта — устраняем гонку client_uuid.
+    lock_tenant(tenant)
+
     if client_uuid:
         existing = Receipt.objects.filter(tenant=tenant, client_uuid=client_uuid).first()
         if existing is not None:
