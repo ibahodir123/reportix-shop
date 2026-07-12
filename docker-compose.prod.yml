@@ -44,7 +44,7 @@ services:
       SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-False}
       CSRF_COOKIE_SECURE: ${CSRF_COOKIE_SECURE:-False}
       STT_PROVIDER: ${STT_PROVIDER:-mock}
-      GOOGLE_STT_MODEL: ${GOOGLE_STT_MODEL:-latest_short}
+      GOOGLE_STT_MODEL: ${GOOGLE_STT_MODEL:-default}
     volumes:
       - static_data:/app/static
       - media_data:/app/media
