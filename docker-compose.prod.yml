@@ -72,9 +72,13 @@ services:
       dockerfile: nginx/Dockerfile
     ports:
       - "80:80"
+      - "443:443"
+      - "443:443/udp"
     volumes:
       - static_data:/srv/static:ro
       - media_data:/srv/media:ro
+      - caddy_data:/data
+      - caddy_config:/config
     depends_on:
       - backend
     restart: unless-stopped
@@ -84,3 +88,5 @@ volumes:
   redis_data:
   static_data:
   media_data:
+  caddy_data:
+  caddy_config:
