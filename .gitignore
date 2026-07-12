@@ -15,6 +15,7 @@ frontend/.env
 
 # Env
 .env
+.env.prod
 
 # Editor / OS
 .vscode/
