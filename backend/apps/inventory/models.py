@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.db import models
 
 from apps.common.models import TenantOwnedModel, TimeStampedModel
@@ -84,3 +85,58 @@ class StockMovement(TimeStampedModel):
 
     def __str__(self):
         return f"{self.get_movement_type_display()} {self.variant}: {self.quantity}"
+
+
+class Receipt(TenantOwnedModel):
+    """Документ приёмки товара на склад. История приёмок сохраняется."""
+
+    warehouse = models.ForeignKey(Warehouse, on_delete=models.PROTECT, related_name="receipts")
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="receipts"
+    )
+    supplier_name = models.CharField(max_length=255, blank=True, verbose_name="Поставщик")
+    reference = models.CharField(max_length=255, blank=True, verbose_name="Основание")
+    # Идемпотентность: повтор одного запроса не задваивает приёмку.
+    client_uuid = models.UUIDField(null=True, blank=True)
+    total_cost = models.DecimalField(max_digits=18, decimal_places=2, default=0)
+
+    class Meta:
+        ordering = ["-created_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["tenant", "client_uuid"],
+                condition=models.Q(client_uuid__isnull=False),
+                name="uniq_receipt_client_uuid_per_tenant",
+            ),
+        ]
+        verbose_name = "Приёмка"
+        verbose_name_plural = "Приёмки"
+
+    def __str__(self):
+        return f"Приёмка #{self.pk}"
+
+
+class ReceiptItem(models.Model):
+    """Позиция документа приёмки (привязана к созданному движению IN)."""
+
+    receipt = models.ForeignKey(Receipt, on_delete=models.CASCADE, related_name="items")
+    variant = models.ForeignKey(
+        "catalog.Variant", on_delete=models.PROTECT, related_name="receipt_items"
+    )
+    movement = models.ForeignKey(
+        StockMovement,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="receipt_items",
+    )
+    quantity = models.DecimalField(max_digits=18, decimal_places=3)
+    purchase_price = models.DecimalField(max_digits=18, decimal_places=2)
+    total = models.DecimalField(max_digits=18, decimal_places=2, default=0)
+
+    class Meta:
+        verbose_name = "Позиция приёмки"
+        verbose_name_plural = "Позиции приёмки"
+
+    def __str__(self):
+        return f"{self.variant} × {self.quantity}"

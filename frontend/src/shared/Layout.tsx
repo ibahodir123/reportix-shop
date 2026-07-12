@@ -2,6 +2,7 @@ import {
   AppstoreOutlined,
   AudioOutlined,
   DashboardOutlined,
+  ImportOutlined,
   LogoutOutlined,
   ShopOutlined,
   ShoppingCartOutlined,
@@ -19,6 +20,7 @@ const { Header, Sider, Content } = Layout;
 const items = [
   { key: "/dashboard", icon: <DashboardOutlined />, label: <Link to="/dashboard">Сводка</Link> },
   { key: "/pos", icon: <ShoppingCartOutlined />, label: <Link to="/pos">Касса</Link> },
+  { key: "/receiving", icon: <ImportOutlined />, label: <Link to="/receiving">Приёмка</Link> },
   { key: "/products", icon: <AppstoreOutlined />, label: <Link to="/products">Товары</Link> },
   { key: "/voice", icon: <AudioOutlined />, label: <Link to="/voice">Голосовой ввод</Link> },
 ];

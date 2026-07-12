@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import Stock, StockMovement, Warehouse
+from .models import Receipt, ReceiptItem, Stock, StockMovement, Warehouse
 
 
 @admin.register(Warehouse)
@@ -23,3 +23,20 @@ class StockMovementAdmin(admin.ModelAdmin):
     list_filter = ("tenant", "movement_type")
     search_fields = ("variant__sku", "reference")
     date_hierarchy = "created_at"
+
+
+class ReceiptItemInline(admin.TabularInline):
+    model = ReceiptItem
+    extra = 0
+    readonly_fields = ("variant", "movement", "quantity", "purchase_price", "total")
+    can_delete = False
+
+
+@admin.register(Receipt)
+class ReceiptAdmin(admin.ModelAdmin):
+    list_display = ("id", "created_at", "warehouse", "supplier_name", "total_cost", "created_by", "tenant")
+    list_filter = ("tenant", "warehouse")
+    search_fields = ("supplier_name", "reference")
+    date_hierarchy = "created_at"
+    inlines = (ReceiptItemInline,)
+    readonly_fields = ("total_cost", "created_at", "created_by", "client_uuid")
