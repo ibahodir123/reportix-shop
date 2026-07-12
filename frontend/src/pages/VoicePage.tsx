@@ -1,5 +1,5 @@
-import { AudioOutlined, LoadingOutlined } from "@ant-design/icons";
-import { useMutation } from "@tanstack/react-query";
+import { AudioOutlined, LoadingOutlined, SaveOutlined } from "@ant-design/icons";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Alert,
   Button,
@@ -16,11 +16,12 @@ import {
   Typography,
   message,
 } from "antd";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { api } from "../shared/api";
+import type { Paginated, Warehouse } from "../shared/types";
 
-interface Draft {
+export interface Draft {
   name: string | null;
   attributes: { color?: string; size?: string };
   purchase_price: string | null;
@@ -36,6 +37,16 @@ interface ParseResult {
   draft: Draft;
 }
 
+export interface DraftFormValues {
+  name: string;
+  color: string;
+  size: string;
+  purchase_price?: number;
+  sale_price?: number;
+  quantity?: number;
+  warehouse?: number;
+}
+
 async function parseAudio(blob: Blob, language: string): Promise<ParseResult> {
   const fd = new FormData();
   fd.append("audio", blob, "recording.webm");
@@ -48,12 +59,19 @@ async function parseText(text: string, language: string): Promise<ParseResult> {
 }
 
 export function VoicePage() {
+  const qc = useQueryClient();
   const [recording, setRecording] = useState(false);
   const [result, setResult] = useState<ParseResult | null>(null);
   const [text, setText] = useState("");
   const [language, setLanguage] = useState("uz-UZ");
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
+
+  const { data: warehouses } = useQuery({
+    queryKey: ["warehouses"],
+    queryFn: async () =>
+      (await api.get<Paginated<Warehouse>>("/inventory/warehouses/")).data.results,
+  });
 
   const parseMut = useMutation({
     mutationFn: (input: Blob | string) =>
@@ -62,6 +80,25 @@ export function VoicePage() {
         : parseAudio(input, language),
     onSuccess: (r) => setResult(r),
     onError: () => message.error("Не удалось распознать/разобрать"),
+  });
+
+  const saveMut = useMutation({
+    mutationFn: (values: DraftFormValues) =>
+      api.post("/catalog/quick-product/", values).then((r) => r.data),
+    onSuccess: () => {
+      message.success("Товар сохранён");
+      setResult(null);
+      qc.invalidateQueries({ queryKey: ["products"] });
+    },
+    onError: (e: any) => {
+      const d = e?.response?.data;
+      const first =
+        d?.detail ??
+        (d && typeof d === "object" ? (Object.values(d)[0] as any) : null);
+      message.error(
+        (Array.isArray(first) ? first[0] : first) ?? "Не удалось сохранить товар"
+      );
+    },
   });
 
   async function startRecording() {
@@ -156,13 +193,18 @@ export function VoicePage() {
                   </Descriptions.Item>
                 </Descriptions>
 
-                <DraftForm draft={result.draft} />
+                <DraftForm
+                  draft={result.draft}
+                  warehouses={warehouses ?? []}
+                  saving={saveMut.isPending}
+                  onSave={(values) => saveMut.mutate(values)}
+                />
 
                 <Alert
                   style={{ marginTop: 12 }}
                   type="info"
                   showIcon
-                  message="Распознавание не пишет в базу — проверьте поля и сохраните вручную."
+                  message="Проверьте поля и сохраните — товар и приход создаются только по кнопке."
                 />
               </>
             )}
@@ -173,21 +215,70 @@ export function VoicePage() {
   );
 }
 
-function DraftForm({ draft }: { draft: Draft }) {
+function draftToValues(draft: Draft): DraftFormValues {
+  return {
+    name: draft.name ?? "",
+    color: draft.attributes.color ?? "",
+    size: draft.attributes.size ?? "",
+    purchase_price: draft.purchase_price ? Number(draft.purchase_price) : undefined,
+    sale_price: draft.sale_price ? Number(draft.sale_price) : undefined,
+    quantity: draft.quantity ? Number(draft.quantity) : undefined,
+    warehouse: undefined,
+  };
+}
+
+export function DraftForm({
+  draft,
+  warehouses,
+  saving,
+  onSave,
+}: {
+  draft: Draft;
+  warehouses: Warehouse[];
+  saving: boolean;
+  onSave: (values: DraftFormValues) => void;
+}) {
+  const [values, setValues] = useState<DraftFormValues>(() => draftToValues(draft));
+
+  // Ключевой момент: при каждом НОВОМ результате распознавания форма
+  // перезаполняется распознанными значениями (склад сохраняем).
+  useEffect(() => {
+    setValues((prev) => ({ ...draftToValues(draft), warehouse: prev.warehouse }));
+  }, [draft]);
+
+  function set<K extends keyof DraftFormValues>(key: K, value: DraftFormValues[K]) {
+    setValues((prev) => ({ ...prev, [key]: value }));
+  }
+
+  const needsWarehouse = !!values.quantity && values.quantity > 0 && !values.warehouse;
+  const canSave = values.name.trim().length > 0 && !needsWarehouse;
+
   return (
     <Form layout="vertical">
       <Form.Item label="Наименование">
-        <Input defaultValue={draft.name ?? ""} />
+        <Input
+          aria-label="Наименование"
+          value={values.name}
+          onChange={(e) => set("name", e.target.value)}
+        />
       </Form.Item>
       <Row gutter={12}>
         <Col span={12}>
           <Form.Item label="Цвет">
-            <Input defaultValue={draft.attributes.color ?? ""} />
+            <Input
+              aria-label="Цвет"
+              value={values.color}
+              onChange={(e) => set("color", e.target.value)}
+            />
           </Form.Item>
         </Col>
         <Col span={12}>
           <Form.Item label="Размер">
-            <Input defaultValue={draft.attributes.size ?? ""} />
+            <Input
+              aria-label="Размер"
+              value={values.size}
+              onChange={(e) => set("size", e.target.value)}
+            />
           </Form.Item>
         </Col>
       </Row>
@@ -195,28 +286,60 @@ function DraftForm({ draft }: { draft: Draft }) {
         <Col span={8}>
           <Form.Item label="Закуп. цена">
             <InputNumber
+              aria-label="Закупочная цена"
               style={{ width: "100%" }}
-              defaultValue={draft.purchase_price ? Number(draft.purchase_price) : undefined}
+              min={0}
+              value={values.purchase_price}
+              onChange={(v) => set("purchase_price", v == null ? undefined : Number(v))}
             />
           </Form.Item>
         </Col>
         <Col span={8}>
           <Form.Item label="Цена продажи">
             <InputNumber
+              aria-label="Цена продажи"
               style={{ width: "100%" }}
-              defaultValue={draft.sale_price ? Number(draft.sale_price) : undefined}
+              min={0}
+              value={values.sale_price}
+              onChange={(v) => set("sale_price", v == null ? undefined : Number(v))}
             />
           </Form.Item>
         </Col>
         <Col span={8}>
           <Form.Item label="Количество">
             <InputNumber
+              aria-label="Количество"
               style={{ width: "100%" }}
-              defaultValue={draft.quantity ? Number(draft.quantity) : undefined}
+              min={0}
+              value={values.quantity}
+              onChange={(v) => set("quantity", v == null ? undefined : Number(v))}
             />
           </Form.Item>
         </Col>
       </Row>
+      <Form.Item
+        label="Склад (для прихода количества)"
+        validateStatus={needsWarehouse ? "error" : undefined}
+        help={needsWarehouse ? "Укажите склад для прихода количества" : undefined}
+      >
+        <Select
+          allowClear
+          placeholder="Не приходовать"
+          value={values.warehouse}
+          onChange={(v) => set("warehouse", v ?? undefined)}
+          options={warehouses.map((w) => ({ value: w.id, label: w.name }))}
+          style={{ maxWidth: 320 }}
+        />
+      </Form.Item>
+      <Button
+        type="primary"
+        icon={<SaveOutlined />}
+        disabled={!canSave}
+        loading={saving}
+        onClick={() => onSave(values)}
+      >
+        Сохранить товар
+      </Button>
     </Form>
   );
 }

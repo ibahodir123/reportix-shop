@@ -35,6 +35,13 @@ export interface Paginated<T> {
   results: T[];
 }
 
+export interface Warehouse {
+  id: number;
+  branch: number;
+  name: string;
+  is_active: boolean;
+}
+
 export interface Register {
   id: number;
   branch: number;

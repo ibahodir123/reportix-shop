@@ -1,4 +1,7 @@
 from django.db.models import Q
+from rest_framework.exceptions import PermissionDenied
+from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from apps.common.api import TenantScopedViewSet
 
@@ -7,9 +10,11 @@ from .serializers import (
     BrandSerializer,
     CategorySerializer,
     ProductSerializer,
+    QuickProductInputSerializer,
     UnitSerializer,
     VariantSerializer,
 )
+from .services import quick_create_product
 
 
 class CategoryViewSet(TenantScopedViewSet):
@@ -39,6 +44,23 @@ class ProductViewSet(TenantScopedViewSet):
         if search:
             qs = qs.filter(name__icontains=search)
         return qs
+
+
+class QuickProductCreateView(APIView):
+    """
+    POST /api/catalog/quick-product/ — быстрое создание товара из голосового
+    черновика: Product + Variant (+ опциональный приход количества на склад).
+    """
+
+    def post(self, request):
+        tenant = getattr(request, "tenant", None)
+        if tenant is None:
+            raise PermissionDenied("Не выбран тенант (бизнес-аккаунт).")
+
+        serializer = QuickProductInputSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        product = quick_create_product(tenant=tenant, data=serializer.validated_data)
+        return Response(ProductSerializer(product).data, status=201)
 
 
 class VariantViewSet(TenantScopedViewSet):

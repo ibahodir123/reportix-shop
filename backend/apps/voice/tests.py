@@ -42,6 +42,19 @@ class NluTests(SimpleTestCase):
         self.assertEqual(d["quantity"], "20")
         self.assertEqual(d["confidence"], "estimated")
 
+    def test_ru_full_phrase_words(self):
+        # Числа словами + запятые (как отдаёт реальный STT).
+        d = parse_product_draft(
+            "Футболка синяя размер эль, закуп сорок пять тысяч, "
+            "продажа семьдесят девять тысяч, двадцать штук"
+        )
+        self.assertEqual(d["name"], "Футболка")
+        self.assertEqual(d["attributes"].get("color"), "синий")
+        self.assertEqual(d["attributes"].get("size"), "L")
+        self.assertEqual(d["purchase_price"], "45000")
+        self.assertEqual(d["sale_price"], "79000")
+        self.assertEqual(d["quantity"], "20")
+
     def test_uz_phrase(self):
         d = parse_product_draft(
             "Koylak qizil olish qirq besh ming sotuv yetmish to'qqiz ming yigirma dona"

@@ -69,3 +69,35 @@ class ProductSerializer(serializers.ModelSerializer):
             "variants",
             "created_at",
         ]
+
+
+class QuickProductInputSerializer(serializers.Serializer):
+    """
+    Быстрое создание товара из голосового черновика:
+    Product + один Variant (+ опциональный приход количества на склад).
+    """
+
+    name = serializers.CharField(max_length=255)
+    unit = serializers.IntegerField(required=False, allow_null=True)
+    category = serializers.IntegerField(required=False, allow_null=True)
+    brand = serializers.IntegerField(required=False, allow_null=True)
+    color = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    size = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    sku = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    barcode = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    purchase_price = serializers.DecimalField(
+        max_digits=18, decimal_places=2, required=False, default=0
+    )
+    sale_price = serializers.DecimalField(
+        max_digits=18, decimal_places=2, required=False, default=0
+    )
+    quantity = serializers.DecimalField(
+        max_digits=18, decimal_places=3, required=False, default=0
+    )
+    warehouse = serializers.IntegerField(required=False, allow_null=True)
+
+    def validate_name(self, value):
+        value = (value or "").strip()
+        if not value:
+            raise serializers.ValidationError("Укажите наименование товара.")
+        return value

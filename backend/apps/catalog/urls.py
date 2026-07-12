@@ -1,6 +1,14 @@
+from django.urls import path
 from rest_framework.routers import DefaultRouter
 
-from .views import BrandViewSet, CategoryViewSet, ProductViewSet, UnitViewSet, VariantViewSet
+from .views import (
+    BrandViewSet,
+    CategoryViewSet,
+    ProductViewSet,
+    QuickProductCreateView,
+    UnitViewSet,
+    VariantViewSet,
+)
 
 router = DefaultRouter()
 router.register("categories", CategoryViewSet)
@@ -9,4 +17,7 @@ router.register("units", UnitViewSet)
 router.register("products", ProductViewSet)
 router.register("variants", VariantViewSet)
 
-urlpatterns = router.urls
+urlpatterns = [
+    path("quick-product/", QuickProductCreateView.as_view(), name="quick-product"),
+    *router.urls,
+]
