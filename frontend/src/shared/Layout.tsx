@@ -1,5 +1,6 @@
 import {
   AppstoreOutlined,
+  AudioOutlined,
   DashboardOutlined,
   ShopOutlined,
   ShoppingCartOutlined,
@@ -13,6 +14,7 @@ const items = [
   { key: "/dashboard", icon: <DashboardOutlined />, label: <Link to="/dashboard">Сводка</Link> },
   { key: "/pos", icon: <ShoppingCartOutlined />, label: <Link to="/pos">Касса</Link> },
   { key: "/products", icon: <AppstoreOutlined />, label: <Link to="/products">Товары</Link> },
+  { key: "/voice", icon: <AudioOutlined />, label: <Link to="/voice">Голосовой ввод</Link> },
 ];
 
 export function AppLayout() {

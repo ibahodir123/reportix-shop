@@ -9,5 +9,6 @@ urlpatterns = [
     path("api/catalog/", include("apps.catalog.urls")),
     path("api/inventory/", include("apps.inventory.urls")),
     path("api/sales/", include("apps.sales.urls")),
+    path("api/voice/", include("apps.voice.urls")),
     path("django-rq/", include("django_rq.urls")),
 ]

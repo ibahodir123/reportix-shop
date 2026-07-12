@@ -42,6 +42,7 @@ INSTALLED_APPS = [
     "apps.catalog",
     "apps.inventory",
     "apps.sales",
+    "apps.voice",
 ]
 
 MIDDLEWARE = [
@@ -166,6 +167,11 @@ if not DEBUG:
     SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
     SESSION_COOKIE_SECURE = env.bool("SESSION_COOKIE_SECURE", default=True)
     CSRF_COOKIE_SECURE = env.bool("CSRF_COOKIE_SECURE", default=True)
+
+# --- Voice / STT -----------------------------------------------------------
+# Провайдер распознавания речи: "mock" (по умолчанию, без ключей) | "google".
+STT_PROVIDER = env("STT_PROVIDER", default="mock")
+GOOGLE_STT_MODEL = env("GOOGLE_STT_MODEL", default="default")
 
 # --- Background jobs (django-rq) -------------------------------------------
 RQ_REDIS_URL = env("RQ_REDIS_URL", default=env("REDIS_URL", default="redis://redis:6379/1"))
