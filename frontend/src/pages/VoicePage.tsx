@@ -10,6 +10,7 @@ import {
   Input,
   InputNumber,
   Row,
+  Select,
   Space,
   Tag,
   Typography,
@@ -35,26 +36,30 @@ interface ParseResult {
   draft: Draft;
 }
 
-async function parseAudio(blob: Blob): Promise<ParseResult> {
+async function parseAudio(blob: Blob, language: string): Promise<ParseResult> {
   const fd = new FormData();
   fd.append("audio", blob, "recording.webm");
+  fd.append("language", language);
   return (await api.post<ParseResult>("/voice/parse-product/", fd)).data;
 }
 
-async function parseText(text: string): Promise<ParseResult> {
-  return (await api.post<ParseResult>("/voice/parse-product/", { text })).data;
+async function parseText(text: string, language: string): Promise<ParseResult> {
+  return (await api.post<ParseResult>("/voice/parse-product/", { text, language })).data;
 }
 
 export function VoicePage() {
   const [recording, setRecording] = useState(false);
   const [result, setResult] = useState<ParseResult | null>(null);
   const [text, setText] = useState("");
+  const [language, setLanguage] = useState("uz-UZ");
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
 
   const parseMut = useMutation({
     mutationFn: (input: Blob | string) =>
-      typeof input === "string" ? parseText(input) : parseAudio(input),
+      typeof input === "string"
+        ? parseText(input, language)
+        : parseAudio(input, language),
     onSuccess: (r) => setResult(r),
     onError: () => message.error("Не удалось распознать/разобрать"),
   });
@@ -96,6 +101,15 @@ export function VoicePage() {
         <Col xs={24} md={10}>
           <Card title="Запись" size="small">
             <Space direction="vertical" style={{ width: "100%" }} size="middle">
+              <Select
+                value={language}
+                onChange={setLanguage}
+                options={[
+                  { value: "uz-UZ", label: "O‘zbekcha" },
+                  { value: "ru-RU", label: "Русский" },
+                ]}
+                style={{ width: 180 }}
+              />
               <Button
                 type={recording ? "default" : "primary"}
                 danger={recording}
