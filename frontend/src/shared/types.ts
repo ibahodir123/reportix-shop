@@ -71,3 +71,19 @@ export interface CartLine {
   quantity: number;
   price: number;
 }
+
+export interface Membership {
+  tenant_id: number;
+  tenant_name: string;
+  role: string;
+  branch: number | null;
+}
+
+export interface CurrentUser {
+  id: number;
+  username: string;
+  phone: string | null;
+  is_staff: boolean;
+  current_tenant: { id: number; name: string } | null;
+  memberships: Membership[];
+}
