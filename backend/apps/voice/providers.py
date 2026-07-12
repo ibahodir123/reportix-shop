@@ -50,6 +50,8 @@ class GoogleCloudSTTProvider(STTProvider):
         client = speech.SpeechClient()
         audio = speech.RecognitionAudio(content=audio_bytes)
         config = speech.RecognitionConfig(
+            encoding=speech.RecognitionConfig.AudioEncoding.WEBM_OPUS,
+            sample_rate_hertz=48000,
             language_code=language,
             enable_automatic_punctuation=True,
             model=getattr(settings, "GOOGLE_STT_MODEL", "default"),
