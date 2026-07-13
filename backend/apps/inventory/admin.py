@@ -68,3 +68,11 @@ class ReceiptAdmin(admin.ModelAdmin):
 
     def has_delete_permission(self, request, obj=None):
         return False
+
+    # View-only режим: изменение запрещено, просмотр сохраняется. Django
+    # рендерит форму read-only без кнопок «Сохранить»/«…и продолжить»/«Удалить».
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_view_permission(self, request, obj=None):
+        return True

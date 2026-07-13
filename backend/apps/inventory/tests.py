@@ -320,3 +320,50 @@ class ReceiptAdminPermissionTests(TestCase):
         self.assertFalse(inline.has_add_permission(self.req, self.receipt))
         self.assertFalse(inline.has_change_permission(self.req, self.receipt))
         self.assertFalse(inline.has_delete_permission(self.req, self.receipt))
+
+    def test_change_permission_false_view_true(self):
+        admin = ReceiptAdmin(Receipt, AdminSite())
+        self.assertFalse(admin.has_change_permission(self.req, self.receipt))
+        self.assertTrue(admin.has_view_permission(self.req, self.receipt))
+
+
+class ReceiptAdminViewOnlyHtmlTests(TestCase):
+    """Рендерим страницу admin и проверяем, что нет submit/удаления."""
+
+    def setUp(self):
+        self.superuser = User.objects.create_superuser(
+            username="admin", email="a@a.com", password="pass12345"
+        )
+        self.tenant = Tenant.objects.create(name="Магазин", owner=self.superuser)
+        self.branch = Branch.objects.create(tenant=self.tenant, name="Центр")
+        self.warehouse = Warehouse.objects.create(
+            tenant=self.tenant, branch=self.branch, name="Основной"
+        )
+        self.unit = Unit.objects.create(tenant=self.tenant, name="Штука", short_name="шт")
+        product = Product.objects.create(tenant=self.tenant, name="Товар", unit=self.unit)
+        self.variant = Variant.objects.create(
+            tenant=self.tenant, product=product, sku="A-1", purchase_price=Decimal("10")
+        )
+        self.receipt = create_receipt(
+            tenant=self.tenant,
+            warehouse=self.warehouse,
+            created_by=self.superuser,
+            items=[{"variant": self.variant, "quantity": Decimal("1"), "purchase_price": "100"}],
+        )
+        self.client.force_login(self.superuser)
+
+    def test_change_page_is_view_only_no_submit_buttons(self):
+        url = f"/admin/inventory/receipt/{self.receipt.id}/change/"
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, 200)
+        html = resp.content.decode()
+        # Нет кнопок «Сохранить» / «…и продолжить» / «…и добавить».
+        self.assertNotIn('name="_save"', html)
+        self.assertNotIn('name="_continue"', html)
+        self.assertNotIn('name="_addanother"', html)
+        # Нет ссылки удаления.
+        self.assertNotIn(f"/admin/inventory/receipt/{self.receipt.id}/delete/", html)
+
+    def test_changelist_still_works(self):
+        resp = self.client.get("/admin/inventory/receipt/")
+        self.assertEqual(resp.status_code, 200)
