@@ -19,7 +19,7 @@ import { useState } from "react";
 
 import { api } from "../shared/api";
 import type { Paginated, Variant, Warehouse } from "../shared/types";
-import { createClientUuid } from "../shared/uuid";
+import { useIdempotencyKey } from "../shared/useIdempotencyKey";
 
 const money = (n: number) => n.toLocaleString("ru-RU") + " сум";
 
@@ -117,6 +117,8 @@ export function ReceivingPage() {
   const [warehouse, setWarehouse] = useState<number | undefined>(undefined);
   const [search, setSearch] = useState("");
   const [lines, setLines] = useState<ReceiptLine[]>([]);
+  // Один client_uuid на весь документ приёмки до успешного проведения.
+  const { key: clientUuid, renew: renewClientUuid } = useIdempotencyKey();
 
   const { data: warehouses } = useQuery({
     queryKey: ["warehouses"],
@@ -149,7 +151,7 @@ export function ReceivingPage() {
     mutationFn: async () => {
       const payload = {
         warehouse,
-        client_uuid: createClientUuid(),
+        client_uuid: clientUuid,
         items: lines.map((l) => ({
           variant: l.variant.id,
           quantity: l.quantity,
@@ -162,6 +164,8 @@ export function ReceivingPage() {
       message.success(`Приёмка №${receipt.id} проведена на ${money(Number(receipt.total_cost))}`);
       setLines([]);
       setSearch("");
+      // Новый документ — новый ключ идемпотентности.
+      renewClientUuid();
       qc.invalidateQueries({ queryKey: ["stocks"] });
     },
     onError: (e: any) => {
@@ -244,7 +248,7 @@ export function ReceivingPage() {
               type="primary"
               size="large"
               style={{ marginTop: 16 }}
-              disabled={!canSubmit}
+              disabled={!canSubmit || submitMut.isPending}
               loading={submitMut.isPending}
               onClick={() => submitMut.mutate()}
             >

@@ -22,19 +22,9 @@ import { useMemo, useState } from "react";
 
 import { api } from "../shared/api";
 import type { CartLine, Paginated, Register, Shift, Variant, ZReport } from "../shared/types";
+import { useIdempotencyKey } from "../shared/useIdempotencyKey";
 
 const money = (n: number) => n.toLocaleString("ru-RU") + " сум";
-
-function createClientUuid() {
-  if (typeof globalThis.crypto?.randomUUID === "function") {
-    return globalThis.crypto.randomUUID();
-  }
-  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (char) => {
-    const random = Math.floor(Math.random() * 16);
-    const value = char === "x" ? random : (random & 0x3) | 0x8;
-    return value.toString(16);
-  });
-}
 
 // ──────────────────────────────────────────────────────────────────────────
 // Открытие смены
@@ -110,6 +100,8 @@ function SaleScreen({ shift, onClosed }: { shift: Shift; onClosed: () => void })
   const [paidCash, setPaidCash] = useState(0);
   const [paidCard, setPaidCard] = useState(0);
   const [zReport, setZReport] = useState<ZReport | null>(null);
+  // Один client_uuid на текущий чек до успешного проведения.
+  const { key: clientUuid, renew: renewClientUuid } = useIdempotencyKey();
 
   const { data: results, isFetching } = useQuery({
     queryKey: ["variant-search", search],
@@ -150,7 +142,7 @@ function SaleScreen({ shift, onClosed }: { shift: Shift; onClosed: () => void })
         discount,
         paid_cash: paymentType === "card" ? 0 : paidCash,
         paid_card: paymentType === "cash" ? 0 : paidCard,
-        client_uuid: createClientUuid(),
+        client_uuid: clientUuid,
         items: cart.map((l) => ({
           variant: l.variant.id,
           quantity: l.quantity,
@@ -166,6 +158,8 @@ function SaleScreen({ shift, onClosed }: { shift: Shift; onClosed: () => void })
       setDiscount(0);
       setPaidCash(0);
       setPaidCard(0);
+      // Новый чек — новый ключ идемпотентности.
+      renewClientUuid();
     },
     onError: (e: any) => {
       const d = e?.response?.data;
@@ -342,7 +336,7 @@ function SaleScreen({ shift, onClosed }: { shift: Shift; onClosed: () => void })
                   size="large"
                   block
                   style={{ marginTop: 12 }}
-                  disabled={cart.length === 0 || paid < total}
+                  disabled={cart.length === 0 || paid < total || saleMut.isPending}
                   loading={saleMut.isPending}
                   onClick={() => saleMut.mutate()}
                 >

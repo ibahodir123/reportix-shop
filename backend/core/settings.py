@@ -29,7 +29,14 @@ SECRET_KEY = get_secret_key(env("SECRET_KEY", default=""), DEBUG)
 
 ALLOWED_HOSTS = env.list("ALLOWED_HOSTS", default=["localhost", "127.0.0.1", "backend"])
 
-_TESTING = "test" in sys.argv or any(a.startswith("test") for a in sys.argv)
+# Распознаём как Django-тесты (manage.py test), так и pytest —
+# чтобы в тестах использовать locmem-кэш и не обращаться к Redis.
+_TESTING = (
+    "test" in sys.argv
+    or any(a.startswith("test") for a in sys.argv)
+    or "pytest" in sys.modules
+    or bool(os.environ.get("PYTEST_VERSION"))
+)
 
 # --- Applications ----------------------------------------------------------
 INSTALLED_APPS = [
