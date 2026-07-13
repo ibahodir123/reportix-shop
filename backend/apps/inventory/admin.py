@@ -28,8 +28,18 @@ class StockMovementAdmin(admin.ModelAdmin):
 class ReceiptItemInline(admin.TabularInline):
     model = ReceiptItem
     extra = 0
-    readonly_fields = ("variant", "movement", "quantity", "purchase_price", "total")
     can_delete = False
+    readonly_fields = ("variant", "movement", "quantity", "purchase_price", "total")
+
+    # Позиции проведённой приёмки нельзя добавлять/менять/удалять.
+    def has_add_permission(self, request, obj=None):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
 
 
 @admin.register(Receipt)
@@ -39,4 +49,22 @@ class ReceiptAdmin(admin.ModelAdmin):
     search_fields = ("supplier_name", "reference")
     date_hierarchy = "created_at"
     inlines = (ReceiptItemInline,)
-    readonly_fields = ("total_cost", "created_at", "created_by", "client_uuid")
+    # Проведённая приёмка неизменяема — все поля только для чтения.
+    readonly_fields = (
+        "tenant",
+        "warehouse",
+        "created_by",
+        "supplier_name",
+        "reference",
+        "client_uuid",
+        "total_cost",
+        "created_at",
+        "updated_at",
+    )
+
+    # Создание — только через endpoint проведения; удаление запрещено.
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False

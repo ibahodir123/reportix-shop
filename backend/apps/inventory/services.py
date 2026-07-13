@@ -90,16 +90,10 @@ def create_receipt(
     if not items:
         raise ValidationError("Документ приёмки пуст.")
 
-    receipt = Receipt.objects.create(
-        tenant=tenant,
-        warehouse=warehouse,
-        created_by=created_by,
-        supplier_name=supplier_name or "",
-        reference=reference or "",
-        client_uuid=client_uuid,
-        total_cost=Decimal("0"),
-    )
-
+    # Полная валидация и подсчёт итога ДО создания Receipt, чтобы записать
+    # total_cost один раз (после создания приёмка иммутабельна — второй save
+    # с изменением total_cost был бы запрещён guard-ом модели).
+    prepared = []
     total = Decimal("0")
     for row in items:
         variant = row["variant"]
@@ -110,7 +104,20 @@ def create_receipt(
             raise ValidationError({"quantity": "Количество должно быть больше нуля."})
         price = Decimal(row.get("purchase_price") or 0)
         line_total = (quantity * price).quantize(TWO)
+        prepared.append((variant, quantity, price, line_total))
+        total += line_total
 
+    receipt = Receipt.objects.create(
+        tenant=tenant,
+        warehouse=warehouse,
+        created_by=created_by,
+        supplier_name=supplier_name or "",
+        reference=reference or "",
+        client_uuid=client_uuid,
+        total_cost=total.quantize(TWO),
+    )
+
+    for variant, quantity, price, line_total in prepared:
         movement = record_movement(
             tenant=tenant,
             warehouse=warehouse,
@@ -128,8 +135,5 @@ def create_receipt(
             purchase_price=price,
             total=line_total,
         )
-        total += line_total
 
-    receipt.total_cost = total.quantize(TWO)
-    receipt.save(update_fields=["total_cost", "updated_at"])
     return receipt

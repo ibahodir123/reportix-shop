@@ -1,4 +1,5 @@
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.db import models
 
 from apps.common.models import TenantOwnedModel, TimeStampedModel
@@ -86,6 +87,15 @@ class StockMovement(TimeStampedModel):
     def __str__(self):
         return f"{self.get_movement_type_display()} {self.variant}: {self.quantity}"
 
+    def save(self, *args, **kwargs):
+        # Движение товара — неизменяемый аудит-лог: только создание.
+        if self.pk and not self._state.adding:
+            raise ValidationError("Движение товара неизменяемо.")
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError("Движение товара нельзя удалить.")
+
 
 class Receipt(TenantOwnedModel):
     """Документ приёмки товара на склад. История приёмок сохраняется."""
@@ -112,8 +122,24 @@ class Receipt(TenantOwnedModel):
         verbose_name = "Приёмка"
         verbose_name_plural = "Приёмки"
 
+    # Поля, которые нельзя менять после проведения приёмки.
+    IMMUTABLE_FIELDS = ("tenant_id", "warehouse_id", "created_by_id", "client_uuid", "total_cost")
+
     def __str__(self):
         return f"Приёмка #{self.pk}"
+
+    def save(self, *args, **kwargs):
+        if self.pk and not self._state.adding:
+            previous = Receipt.objects.get(pk=self.pk)
+            for field in self.IMMUTABLE_FIELDS:
+                if getattr(previous, field) != getattr(self, field):
+                    raise ValidationError(
+                        f"Поле «{field}» проведённой приёмки изменять нельзя."
+                    )
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError("Проведённую приёмку нельзя удалить.")
 
 
 class ReceiptItem(models.Model):
@@ -140,3 +166,12 @@ class ReceiptItem(models.Model):
 
     def __str__(self):
         return f"{self.variant} × {self.quantity}"
+
+    def save(self, *args, **kwargs):
+        # Позиции проведённой приёмки неизменяемы: только создание.
+        if self.pk and not self._state.adding:
+            raise ValidationError("Позицию проведённой приёмки изменять нельзя.")
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError("Позицию проведённой приёмки нельзя удалить.")

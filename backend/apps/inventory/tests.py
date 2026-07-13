@@ -1,14 +1,17 @@
 import uuid
 from decimal import Decimal
 
-from django.test import TestCase
+from django.contrib.admin.sites import AdminSite
+from django.core.exceptions import ValidationError
+from django.test import RequestFactory, TestCase
 from rest_framework.test import APIClient
 
 from apps.catalog.models import Product, Unit, Variant
 from apps.tenants.models import Branch, Membership, Tenant, User
 
-from .models import Receipt, Stock, StockMovement, Warehouse
-from .services import record_movement
+from .admin import ReceiptAdmin, ReceiptItemInline
+from .models import Receipt, ReceiptItem, Stock, StockMovement, Warehouse
+from .services import create_receipt, record_movement
 
 URL = "/api/inventory/receipts/"
 
@@ -148,6 +151,36 @@ class ReceiptApiTests(TestCase):
         )
         self.assertEqual(resp.status_code, 403)
 
+    def test_history_api_is_read_only(self):
+        created = self.client.post(
+            URL,
+            {
+                "warehouse": self.warehouse.id,
+                "items": [{"variant": self.v1.id, "quantity": "2", "purchase_price": "100"}],
+            },
+            format="json",
+        )
+        self.assertEqual(created.status_code, 201, created.content)
+        rid = created.json()["id"]
+        detail = f"{URL}{rid}/"
+
+        # Изменение и удаление проведённой приёмки через API запрещены.
+        self.assertEqual(
+            self.client.patch(detail, {"supplier_name": "x"}, format="json").status_code, 405
+        )
+        self.assertEqual(
+            self.client.put(
+                detail,
+                {"warehouse": self.warehouse.id, "items": []},
+                format="json",
+            ).status_code,
+            405,
+        )
+        self.assertEqual(self.client.delete(detail).status_code, 405)
+        # Чтение по-прежнему доступно, документ на месте.
+        self.assertEqual(self.client.get(detail).status_code, 200)
+        self.assertEqual(Receipt.objects.count(), 1)
+
 
 class RecordMovementTests(TestCase):
     def setUp(self):
@@ -184,3 +217,106 @@ class RecordMovementTests(TestCase):
         stock = Stock.objects.get(warehouse=self.warehouse, variant=self.variant)
         self.assertEqual(stock.quantity, Decimal("3.000"))
         self.assertEqual(StockMovement.objects.count(), 1)  # только приход
+
+
+class ReceiptImmutabilityModelTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username="u", password="pass12345")
+        self.tenant = Tenant.objects.create(name="Магазин", owner=self.user)
+        self.branch = Branch.objects.create(tenant=self.tenant, name="Центр")
+        self.warehouse = Warehouse.objects.create(
+            tenant=self.tenant, branch=self.branch, name="Основной"
+        )
+        self.warehouse2 = Warehouse.objects.create(
+            tenant=self.tenant, branch=self.branch, name="Второй"
+        )
+        self.unit = Unit.objects.create(tenant=self.tenant, name="Штука", short_name="шт")
+        product = Product.objects.create(tenant=self.tenant, name="Товар", unit=self.unit)
+        self.variant = Variant.objects.create(
+            tenant=self.tenant, product=product, sku="A-1", purchase_price=Decimal("10")
+        )
+        self.receipt = create_receipt(
+            tenant=self.tenant,
+            warehouse=self.warehouse,
+            created_by=self.user,
+            items=[{"variant": self.variant, "quantity": Decimal("2"), "purchase_price": "100"}],
+        )
+
+    def test_cannot_change_warehouse(self):
+        r = Receipt.objects.get(pk=self.receipt.pk)
+        r.warehouse = self.warehouse2
+        with self.assertRaises(ValidationError):
+            r.save()
+
+    def test_cannot_change_total_cost(self):
+        r = Receipt.objects.get(pk=self.receipt.pk)
+        r.total_cost = Decimal("1")
+        with self.assertRaises(ValidationError):
+            r.save()
+
+    def test_cannot_delete_receipt(self):
+        r = Receipt.objects.get(pk=self.receipt.pk)
+        with self.assertRaises(ValidationError):
+            r.delete()
+        self.assertEqual(Receipt.objects.count(), 1)
+
+    def test_cannot_change_item(self):
+        item = self.receipt.items.first()
+        item.quantity = Decimal("99")
+        with self.assertRaises(ValidationError):
+            item.save()
+
+    def test_cannot_delete_item(self):
+        item = self.receipt.items.first()
+        with self.assertRaises(ValidationError):
+            item.delete()
+        self.assertEqual(ReceiptItem.objects.count(), 1)
+
+    def test_cannot_change_or_delete_movement(self):
+        movement = StockMovement.objects.get(reference=f"Приёмка #{self.receipt.pk}")
+        movement.quantity = Decimal("99")
+        with self.assertRaises(ValidationError):
+            movement.save()
+        fresh = StockMovement.objects.get(pk=movement.pk)
+        with self.assertRaises(ValidationError):
+            fresh.delete()
+
+
+class ReceiptAdminPermissionTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username="u", password="pass12345")
+        self.tenant = Tenant.objects.create(name="Магазин", owner=self.user)
+        self.branch = Branch.objects.create(tenant=self.tenant, name="Центр")
+        self.warehouse = Warehouse.objects.create(
+            tenant=self.tenant, branch=self.branch, name="Основной"
+        )
+        self.unit = Unit.objects.create(tenant=self.tenant, name="Штука", short_name="шт")
+        product = Product.objects.create(tenant=self.tenant, name="Товар", unit=self.unit)
+        self.variant = Variant.objects.create(
+            tenant=self.tenant, product=product, sku="A-1", purchase_price=Decimal("10")
+        )
+        self.receipt = create_receipt(
+            tenant=self.tenant,
+            warehouse=self.warehouse,
+            created_by=self.user,
+            items=[{"variant": self.variant, "quantity": Decimal("1"), "purchase_price": "100"}],
+        )
+        self.req = RequestFactory().get("/")
+        self.req.user = self.user
+
+    def test_receipt_admin_no_add_no_delete(self):
+        admin = ReceiptAdmin(Receipt, AdminSite())
+        self.assertFalse(admin.has_add_permission(self.req))
+        self.assertFalse(admin.has_delete_permission(self.req, self.receipt))
+
+    def test_receipt_admin_all_fields_readonly(self):
+        admin = ReceiptAdmin(Receipt, AdminSite())
+        ro = set(admin.get_readonly_fields(self.req, self.receipt))
+        for field in ("tenant", "warehouse", "created_by", "total_cost", "client_uuid"):
+            self.assertIn(field, ro)
+
+    def test_inline_no_add_change_delete(self):
+        inline = ReceiptItemInline(Receipt, AdminSite())
+        self.assertFalse(inline.has_add_permission(self.req, self.receipt))
+        self.assertFalse(inline.has_change_permission(self.req, self.receipt))
+        self.assertFalse(inline.has_delete_permission(self.req, self.receipt))
