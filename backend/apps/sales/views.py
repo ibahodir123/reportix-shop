@@ -8,16 +8,19 @@ from apps.catalog.models import Variant
 from apps.common.api import TenantScopedViewSet
 from apps.common.permissions import CASHIER, PosAccess, RegistersAccess
 
-from .models import CashierShift, CashRegister, Sale
+from .models import CashierShift, CashRegister, Return, Sale, SaleItem
 from .serializers import (
     CashierShiftSerializer,
     CashRegisterSerializer,
     CloseShiftSerializer,
     OpenShiftSerializer,
+    ReturnCreateSerializer,
+    ReturnSerializer,
     SaleCreateSerializer,
+    SaleReturnableSerializer,
     SaleSerializer,
 )
-from .services import build_z_report, close_shift, create_sale, open_shift
+from .services import build_z_report, close_shift, create_return, create_sale, open_shift
 
 
 def _require_tenant(request):
@@ -205,3 +208,129 @@ class SaleViewSet(
             client_uuid=data.get("client_uuid"),
         )
         return Response(SaleSerializer(sale).data, status=status.HTTP_201_CREATED)
+
+
+def _scope_sale_for_cashier(request, sale):
+    """
+    Для кассира чек доступен только если это его продажа в его филиале.
+    Возвращает True, если доступен; иначе False.
+    """
+    if not _is_cashier(request):
+        return True
+    if sale.cashier_id != request.user.id:
+        return False
+    branch_id = _cashier_branch(request)
+    return branch_id is None or sale.branch_id == branch_id
+
+
+class ReturnViewSet(
+    mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet
+):
+    """
+    Возвраты по чеку. История read-only; создание — через атомарное проведение.
+    Кассир: только по своим продажам/своей открытой смене/своему филиалу.
+    """
+
+    queryset = Return.objects.select_related("sale", "warehouse", "shift").prefetch_related(
+        "items__variant"
+    )
+    serializer_class = ReturnSerializer
+    permission_classes = [PosAccess]
+
+    def get_queryset(self):
+        tenant = getattr(self.request, "tenant", None)
+        if tenant is None:
+            return self.queryset.none()
+        qs = self.queryset.filter(tenant=tenant)
+        if _is_cashier(self.request):
+            qs = qs.filter(created_by=self.request.user)
+        return qs
+
+    @action(detail=False, methods=["get"])
+    def lookup(self, request):
+        """Поиск чека по номеру + возвращаемые остатки позиций."""
+        tenant = _require_tenant(request)
+        raw = request.query_params.get("number")
+        try:
+            number = int(raw)
+        except (TypeError, ValueError):
+            raise ValidationError("Укажите корректный номер чека.")
+        sale = (
+            Sale.objects.filter(tenant=tenant, number=number)
+            .select_related("branch", "cashier")
+            .prefetch_related("items__variant")
+            .first()
+        )
+        if sale is None or not _scope_sale_for_cashier(request, sale):
+            raise NotFound("Чек не найден.")
+        return Response(SaleReturnableSerializer(sale).data)
+
+    def create(self, request, *args, **kwargs):
+        tenant = _require_tenant(request)
+        payload = ReturnCreateSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        data = payload.validated_data
+
+        client_uuid = data.get("client_uuid")
+        if client_uuid:
+            existing = Return.objects.filter(tenant=tenant, client_uuid=client_uuid).first()
+            if existing is not None:
+                return Response(ReturnSerializer(existing).data, status=status.HTTP_200_OK)
+
+        sale = (
+            Sale.objects.filter(tenant=tenant, pk=data["sale"])
+            .select_related("branch", "warehouse", "cashier")
+            .first()
+        )
+        if sale is None:
+            raise NotFound("Чек не найден.")
+
+        shift = None
+        if _is_cashier(request):
+            # Кассир: только своя продажа, свой филиал, своя открытая смена.
+            if sale.cashier_id != request.user.id:
+                raise PermissionDenied("Возврат возможен только по собственной продаже.")
+            branch_id = _cashier_branch(request)
+            if branch_id is not None and sale.branch_id != branch_id:
+                raise PermissionDenied("Чек другого филиала недоступен.")
+            shift = (
+                CashierShift.objects.filter(
+                    tenant=tenant,
+                    pk=data.get("shift"),
+                    cashier=request.user,
+                    status=CashierShift.STATUS_OPEN,
+                )
+                .select_related("register__branch")
+                .first()
+            )
+            if shift is None:
+                raise PermissionDenied("Нужна собственная открытая смена.")
+            if branch_id is not None and shift.register.branch_id != branch_id:
+                raise PermissionDenied("Смена другого филиала недоступна.")
+        elif data.get("shift"):
+            shift = CashierShift.objects.filter(tenant=tenant, pk=data["shift"]).first()
+
+        item_ids = [row["sale_item"] for row in data["items"]]
+        sale_items = {
+            si.id: si
+            for si in SaleItem.objects.filter(sale=sale, id__in=item_ids).select_related("variant")
+        }
+        items = []
+        for row in data["items"]:
+            sale_item = sale_items.get(row["sale_item"])
+            if sale_item is None:
+                raise ValidationError(f"Позиция {row['sale_item']} не найдена в чеке.")
+            items.append({"sale_item": sale_item, "quantity": row["quantity"]})
+
+        document = create_return(
+            tenant=tenant,
+            sale=sale,
+            created_by=request.user,
+            shift=shift,
+            items=items,
+            payment_type=data["payment_type"],
+            refund_cash=data["refund_cash"],
+            refund_card=data["refund_card"],
+            client_uuid=client_uuid,
+        )
+        return Response(ReturnSerializer(document).data, status=status.HTTP_201_CREATED)

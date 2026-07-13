@@ -9,7 +9,7 @@ from apps.common.db import lock_tenant
 from apps.inventory.models import StockMovement
 from apps.inventory.services import record_movement
 
-from .models import CashierShift, Sale, SaleItem
+from .models import CashierShift, Return, ReturnItem, Sale, SaleItem
 
 TWO = Decimal("0.01")
 
@@ -195,3 +195,112 @@ def create_sale(
         )
 
     return sale
+
+
+def returned_qty_for(sale_item):
+    """Сколько уже возвращено по позиции чека (сумма прошлых возвратов)."""
+    agg = ReturnItem.objects.filter(sale_item=sale_item).aggregate(s=Sum("quantity"))
+    return agg["s"] or Decimal("0")
+
+
+@transaction.atomic
+def create_return(
+    *,
+    tenant,
+    sale,
+    created_by,
+    shift,
+    items,
+    payment_type=Return.PAYMENT_CASH,
+    refund_cash=Decimal("0"),
+    refund_card=Decimal("0"),
+    client_uuid=None,
+):
+    """
+    Проводит возврат по чеку: возвращает товар на склад движением RETURN_IN и
+    фиксирует сумму/способ возврата денег. Всё атомарно. Идемпотентно по
+    client_uuid. Нельзя вернуть больше проданного с учётом прошлых возвратов.
+    """
+    lock_tenant(tenant)
+
+    if client_uuid:
+        existing = Return.objects.filter(tenant=tenant, client_uuid=client_uuid).first()
+        if existing is not None:
+            return existing
+
+    if sale.tenant_id != tenant.id:
+        raise ValidationError("Чек принадлежит другому бизнесу.")
+    if not items:
+        raise ValidationError("Не выбраны позиции для возврата.")
+
+    # Валидация и подсчёт итога ДО создания документа.
+    prepared = []
+    refund_total = Decimal("0")
+    for row in items:
+        sale_item = row["sale_item"]
+        if sale_item.sale_id != sale.id:
+            raise ValidationError("Позиция не принадлежит этому чеку.")
+        qty = _d(row["quantity"])
+        if qty <= 0:
+            raise ValidationError("Количество возврата должно быть больше нуля.")
+        available = sale_item.quantity - returned_qty_for(sale_item)
+        if qty > available:
+            raise ValidationError(
+                f"Нельзя вернуть больше проданного: доступно {available}, запрошено {qty}."
+            )
+        line_total = (qty * sale_item.price).quantize(TWO)
+        prepared.append((sale_item, qty, sale_item.price, line_total, sale_item.cost_price))
+        refund_total += line_total
+    refund_total = refund_total.quantize(TWO)
+
+    # Способ и сумма возврата денег.
+    if payment_type == Return.PAYMENT_CASH:
+        refund_cash, refund_card = refund_total, Decimal("0")
+    elif payment_type == Return.PAYMENT_CARD:
+        refund_cash, refund_card = Decimal("0"), refund_total
+    elif payment_type == Return.PAYMENT_MIXED:
+        refund_cash = _d(refund_cash)
+        refund_card = _d(refund_card)
+        if refund_cash < 0 or refund_card < 0:
+            raise ValidationError("Суммы возврата не могут быть отрицательными.")
+        if (refund_cash + refund_card).quantize(TWO) != refund_total:
+            raise ValidationError("Сумма возврата денег не совпадает со стоимостью позиций.")
+    else:
+        raise ValidationError("Неизвестный способ возврата денег.")
+
+    warehouse = sale.warehouse
+    document = Return.objects.create(
+        tenant=tenant,
+        sale=sale,
+        branch=sale.branch,
+        warehouse=warehouse,
+        shift=shift,
+        created_by=created_by,
+        client_uuid=client_uuid,
+        payment_type=payment_type,
+        refund_cash=refund_cash,
+        refund_card=refund_card,
+        refund_total=refund_total,
+    )
+
+    for sale_item, qty, price, line_total, cost_price in prepared:
+        movement = record_movement(
+            tenant=tenant,
+            warehouse=warehouse,
+            variant=sale_item.variant,
+            movement_type=StockMovement.TYPE_RETURN_IN,
+            quantity=qty,
+            unit_cost=cost_price,
+            reference=f"Возврат #{document.pk}",
+        )
+        ReturnItem.objects.create(
+            document=document,
+            sale_item=sale_item,
+            variant=sale_item.variant,
+            movement=movement,
+            quantity=qty,
+            price=price,
+            total=line_total,
+        )
+
+    return document

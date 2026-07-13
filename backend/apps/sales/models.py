@@ -1,4 +1,5 @@
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.db import models
 
 from apps.common.models import TenantOwnedModel
@@ -141,3 +142,91 @@ class SaleItem(models.Model):
 
     def __str__(self):
         return f"{self.variant} × {self.quantity}"
+
+
+class Return(TenantOwnedModel):
+    """Возврат товара по проведённому чеку. После проведения неизменяем."""
+
+    PAYMENT_CASH = "cash"
+    PAYMENT_CARD = "card"
+    PAYMENT_MIXED = "mixed"
+    PAYMENT_CHOICES = (
+        (PAYMENT_CASH, "Наличные"),
+        (PAYMENT_CARD, "Карта"),
+        (PAYMENT_MIXED, "Смешанная"),
+    )
+
+    sale = models.ForeignKey(Sale, on_delete=models.PROTECT, related_name="returns")
+    branch = models.ForeignKey("tenants.Branch", on_delete=models.PROTECT, related_name="returns")
+    warehouse = models.ForeignKey(
+        "inventory.Warehouse", on_delete=models.PROTECT, related_name="returns"
+    )
+    shift = models.ForeignKey(
+        CashierShift, on_delete=models.SET_NULL, null=True, blank=True, related_name="returns"
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="returns"
+    )
+    client_uuid = models.UUIDField(null=True, blank=True)
+    payment_type = models.CharField(max_length=10, choices=PAYMENT_CHOICES, default=PAYMENT_CASH)
+    refund_cash = models.DecimalField(max_digits=18, decimal_places=2, default=0)
+    refund_card = models.DecimalField(max_digits=18, decimal_places=2, default=0)
+    refund_total = models.DecimalField(max_digits=18, decimal_places=2, default=0)
+
+    class Meta:
+        ordering = ["-created_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["tenant", "client_uuid"],
+                condition=models.Q(client_uuid__isnull=False),
+                name="uniq_return_client_uuid_per_tenant",
+            ),
+        ]
+        verbose_name = "Возврат"
+        verbose_name_plural = "Возвраты"
+
+    def __str__(self):
+        return f"Возврат #{self.pk}"
+
+    def save(self, *args, **kwargs):
+        if self.pk and not self._state.adding:
+            raise ValidationError("Проведённый возврат изменять нельзя.")
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError("Проведённый возврат нельзя удалить.")
+
+
+class ReturnItem(models.Model):
+    """Позиция возврата (привязана к позиции чека и движению RETURN_IN)."""
+
+    document = models.ForeignKey(Return, on_delete=models.CASCADE, related_name="items")
+    sale_item = models.ForeignKey(SaleItem, on_delete=models.PROTECT, related_name="returns")
+    variant = models.ForeignKey(
+        "catalog.Variant", on_delete=models.PROTECT, related_name="return_items"
+    )
+    movement = models.ForeignKey(
+        "inventory.StockMovement",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="return_items",
+    )
+    quantity = models.DecimalField(max_digits=18, decimal_places=3)
+    price = models.DecimalField(max_digits=18, decimal_places=2)
+    total = models.DecimalField(max_digits=18, decimal_places=2, default=0)
+
+    class Meta:
+        verbose_name = "Позиция возврата"
+        verbose_name_plural = "Позиции возврата"
+
+    def __str__(self):
+        return f"{self.variant} × {self.quantity}"
+
+    def save(self, *args, **kwargs):
+        if self.pk and not self._state.adding:
+            raise ValidationError("Позицию проведённого возврата изменять нельзя.")
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError("Позицию проведённого возврата нельзя удалить.")

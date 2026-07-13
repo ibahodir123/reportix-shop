@@ -4,6 +4,7 @@ import {
   DashboardOutlined,
   ImportOutlined,
   LogoutOutlined,
+  RollbackOutlined,
   ShopOutlined,
   ShoppingCartOutlined,
   UserOutlined,
@@ -22,6 +23,7 @@ const { Header, Sider, Content } = Layout;
 const ICONS: Record<string, ReactNode> = {
   "/dashboard": <DashboardOutlined />,
   "/pos": <ShoppingCartOutlined />,
+  "/returns": <RollbackOutlined />,
   "/receiving": <ImportOutlined />,
   "/products": <AppstoreOutlined />,
   "/voice": <AudioOutlined />,

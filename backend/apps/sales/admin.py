@@ -1,6 +1,8 @@
 from django.contrib import admin
 
-from .models import CashierShift, CashRegister, Sale, SaleItem
+from apps.inventory.admin import ReadOnlyAdminMixin
+
+from .models import CashierShift, CashRegister, Return, ReturnItem, Sale, SaleItem
 
 
 @admin.register(CashRegister)
@@ -36,5 +38,43 @@ class SaleAdmin(admin.ModelAdmin):
         "subtotal",
         "total",
         "change",
+        "created_at",
+    )
+
+
+class ReturnItemInline(admin.TabularInline):
+    model = ReturnItem
+    extra = 0
+    can_delete = False
+    readonly_fields = ("sale_item", "variant", "movement", "quantity", "price", "total")
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(Return)
+class ReturnAdmin(ReadOnlyAdminMixin, admin.ModelAdmin):
+    list_display = ("id", "created_at", "sale", "refund_total", "payment_type", "created_by", "tenant")
+    list_filter = ("tenant", "payment_type")
+    date_hierarchy = "created_at"
+    inlines = (ReturnItemInline,)
+    readonly_fields = (
+        "tenant",
+        "sale",
+        "branch",
+        "warehouse",
+        "shift",
+        "created_by",
+        "client_uuid",
+        "payment_type",
+        "refund_cash",
+        "refund_card",
+        "refund_total",
         "created_at",
     )

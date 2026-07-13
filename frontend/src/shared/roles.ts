@@ -18,6 +18,7 @@ export interface NavEntry {
 export const NAV: NavEntry[] = [
   { key: "/dashboard", label: "Сводка", roles: ALL_ROLES },
   { key: "/pos", label: "Касса", roles: ALL_ROLES },
+  { key: "/returns", label: "Возвраты", roles: ALL_ROLES },
   { key: "/receiving", label: "Приёмка", roles: MANAGE_ROLES },
   { key: "/products", label: "Товары", roles: MANAGE_ROLES },
   { key: "/voice", label: "Голосовой ввод", roles: MANAGE_ROLES },

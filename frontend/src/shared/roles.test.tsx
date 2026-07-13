@@ -3,12 +3,12 @@ import { describe, expect, it } from "vitest";
 import { canAccess, visibleNav } from "./roles";
 
 describe("visibleNav (видимость меню по роли)", () => {
-  it("кассир видит только Сводку и Кассу", () => {
-    expect(visibleNav("cashier").map((n) => n.key)).toEqual(["/dashboard", "/pos"]);
+  it("кассир видит Сводку, Кассу и Возвраты", () => {
+    expect(visibleNav("cashier").map((n) => n.key)).toEqual(["/dashboard", "/pos", "/returns"]);
   });
 
   it("менеджер видит все разделы", () => {
-    expect(visibleNav("manager").length).toBe(5);
+    expect(visibleNav("manager").length).toBe(6);
   });
 
   it("владелец видит Товары/Приёмку/Голосовой ввод", () => {

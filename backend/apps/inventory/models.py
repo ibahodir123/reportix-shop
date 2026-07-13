@@ -53,12 +53,14 @@ class StockMovement(TimeStampedModel):
     TYPE_WRITEOFF = "writeoff"
     TYPE_TRANSFER = "transfer"
     TYPE_ADJUST = "adjust"
+    TYPE_RETURN_IN = "return_in"
     TYPE_CHOICES = (
         (TYPE_IN, "Приход"),
         (TYPE_OUT, "Расход"),
         (TYPE_WRITEOFF, "Списание"),
         (TYPE_TRANSFER, "Перемещение"),
         (TYPE_ADJUST, "Корректировка"),
+        (TYPE_RETURN_IN, "Возврат от покупателя"),
     )
 
     tenant = models.ForeignKey(

@@ -1,6 +1,7 @@
+from django.db.models import Sum
 from rest_framework import serializers
 
-from .models import CashierShift, CashRegister, Sale, SaleItem
+from .models import CashierShift, CashRegister, Return, ReturnItem, Sale, SaleItem
 
 
 class CashRegisterSerializer(serializers.ModelSerializer):
@@ -99,3 +100,84 @@ class SaleCreateSerializer(serializers.Serializer):
     paid_card = serializers.DecimalField(max_digits=18, decimal_places=2, default=0)
     client_uuid = serializers.UUIDField(required=False, allow_null=True)
     items = SaleItemInputSerializer(many=True)
+
+
+# --- Возвраты --------------------------------------------------------------
+class ReturnableItemSerializer(serializers.Serializer):
+    """Позиция чека с учётом уже возвращённого — для формы возврата."""
+
+    sale_item = serializers.IntegerField(source="id")
+    variant = serializers.IntegerField(source="variant_id")
+    variant_name = serializers.CharField(source="variant.__str__")
+    price = serializers.DecimalField(max_digits=18, decimal_places=2)
+    sold = serializers.DecimalField(source="quantity", max_digits=18, decimal_places=3)
+    returned = serializers.SerializerMethodField()
+    returnable = serializers.SerializerMethodField()
+
+    def _returned(self, obj):
+        agg = ReturnItem.objects.filter(sale_item=obj).aggregate(s=Sum("quantity"))
+        return agg["s"] or 0
+
+    def get_returned(self, obj):
+        return str(self._returned(obj))
+
+    def get_returnable(self, obj):
+        return str(obj.quantity - self._returned(obj))
+
+
+class SaleReturnableSerializer(serializers.ModelSerializer):
+    items = ReturnableItemSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = Sale
+        fields = ["id", "number", "created_at", "total", "items"]
+
+
+class ReturnItemSerializer(serializers.ModelSerializer):
+    variant_name = serializers.CharField(source="variant.__str__", read_only=True)
+
+    class Meta:
+        model = ReturnItem
+        fields = ["id", "sale_item", "variant", "variant_name", "quantity", "price", "total"]
+
+
+class ReturnSerializer(serializers.ModelSerializer):
+    items = ReturnItemSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = Return
+        fields = [
+            "id",
+            "sale",
+            "branch",
+            "warehouse",
+            "shift",
+            "payment_type",
+            "refund_cash",
+            "refund_card",
+            "refund_total",
+            "created_at",
+            "items",
+        ]
+
+
+class ReturnItemInputSerializer(serializers.Serializer):
+    sale_item = serializers.IntegerField()
+    quantity = serializers.DecimalField(max_digits=18, decimal_places=3)
+
+
+class ReturnCreateSerializer(serializers.Serializer):
+    sale = serializers.IntegerField()
+    shift = serializers.IntegerField(required=False, allow_null=True)
+    payment_type = serializers.ChoiceField(
+        choices=Return.PAYMENT_CHOICES, default=Return.PAYMENT_CASH
+    )
+    refund_cash = serializers.DecimalField(max_digits=18, decimal_places=2, default=0)
+    refund_card = serializers.DecimalField(max_digits=18, decimal_places=2, default=0)
+    client_uuid = serializers.UUIDField(required=False, allow_null=True)
+    items = ReturnItemInputSerializer(many=True)
+
+    def validate_items(self, value):
+        if not value:
+            raise serializers.ValidationError("Выберите позиции для возврата.")
+        return value

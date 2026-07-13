@@ -17,6 +17,7 @@ import { LoginPage } from "./pages/LoginPage";
 import { PosPage } from "./pages/PosPage";
 import { ProductsPage } from "./pages/ProductsPage";
 import { ReceivingPage } from "./pages/ReceivingPage";
+import { ReturnsPage } from "./pages/ReturnsPage";
 import { VoicePage } from "./pages/VoicePage";
 
 const queryClient = new QueryClient();
@@ -46,6 +47,7 @@ const router = createBrowserRouter([
       { index: true, element: <Navigate to="/dashboard" replace /> },
       { path: "dashboard", element: <DashboardPage /> },
       { path: "pos", element: <PosPage /> },
+      { path: "returns", element: <ReturnsPage /> },
       {
         path: "receiving",
         element: (
