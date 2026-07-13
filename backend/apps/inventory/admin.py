@@ -3,6 +3,31 @@ from django.contrib import admin
 from .models import Receipt, ReceiptItem, Stock, StockMovement, Warehouse
 
 
+class ReadOnlyAdminMixin:
+    """
+    Строгий view-only режим: только просмотр списка и карточки.
+    Add/change/delete запрещены; стандартное массовое действие
+    delete_selected убрано. Данные меняются только через доменные сервисы.
+    """
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+    def has_view_permission(self, request, obj=None):
+        return True
+
+    def get_actions(self, request):
+        actions = super().get_actions(request)
+        actions.pop("delete_selected", None)
+        return actions
+
+
 @admin.register(Warehouse)
 class WarehouseAdmin(admin.ModelAdmin):
     list_display = ("name", "branch", "is_active", "tenant")
@@ -11,14 +36,14 @@ class WarehouseAdmin(admin.ModelAdmin):
 
 
 @admin.register(Stock)
-class StockAdmin(admin.ModelAdmin):
+class StockAdmin(ReadOnlyAdminMixin, admin.ModelAdmin):
     list_display = ("variant", "warehouse", "quantity")
     search_fields = ("variant__sku", "variant__product__name")
-    readonly_fields = ("quantity",)
+    readonly_fields = ("variant", "warehouse", "quantity")
 
 
 @admin.register(StockMovement)
-class StockMovementAdmin(admin.ModelAdmin):
+class StockMovementAdmin(ReadOnlyAdminMixin, admin.ModelAdmin):
     list_display = ("created_at", "movement_type", "variant", "warehouse", "quantity", "tenant")
     list_filter = ("tenant", "movement_type")
     search_fields = ("variant__sku", "reference")

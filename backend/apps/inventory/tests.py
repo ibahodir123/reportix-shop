@@ -9,7 +9,7 @@ from rest_framework.test import APIClient
 from apps.catalog.models import Product, Unit, Variant
 from apps.tenants.models import Branch, Membership, Tenant, User
 
-from .admin import ReceiptAdmin, ReceiptItemInline
+from .admin import ReceiptAdmin, ReceiptItemInline, StockAdmin, StockMovementAdmin
 from .models import Receipt, ReceiptItem, Stock, StockMovement, Warehouse
 from .services import create_receipt, record_movement
 
@@ -367,3 +367,98 @@ class ReceiptAdminViewOnlyHtmlTests(TestCase):
     def test_changelist_still_works(self):
         resp = self.client.get("/admin/inventory/receipt/")
         self.assertEqual(resp.status_code, 200)
+
+
+class StockAuditAdminTests(TestCase):
+    """StockMovement и Stock в admin — строго только просмотр."""
+
+    def setUp(self):
+        self.superuser = User.objects.create_superuser(
+            username="admin", email="a@a.com", password="pass12345"
+        )
+        self.tenant = Tenant.objects.create(name="Магазин", owner=self.superuser)
+        self.branch = Branch.objects.create(tenant=self.tenant, name="Центр")
+        self.warehouse = Warehouse.objects.create(
+            tenant=self.tenant, branch=self.branch, name="Основной"
+        )
+        self.unit = Unit.objects.create(tenant=self.tenant, name="Штука", short_name="шт")
+        product = Product.objects.create(tenant=self.tenant, name="Товар", unit=self.unit)
+        self.variant = Variant.objects.create(
+            tenant=self.tenant, product=product, sku="A-1", purchase_price=Decimal("10")
+        )
+        record_movement(
+            tenant=self.tenant,
+            warehouse=self.warehouse,
+            variant=self.variant,
+            movement_type=StockMovement.TYPE_IN,
+            quantity=Decimal("5"),
+        )
+        self.movement = StockMovement.objects.get(tenant=self.tenant)
+        self.stock = Stock.objects.get(warehouse=self.warehouse, variant=self.variant)
+        self.req = RequestFactory().get("/")
+        self.req.user = self.superuser
+        self.client.force_login(self.superuser)
+
+    def _admins(self):
+        return (
+            StockMovementAdmin(StockMovement, AdminSite()),
+            StockAdmin(Stock, AdminSite()),
+        )
+
+    def test_view_only_permissions(self):
+        for admin in self._admins():
+            self.assertFalse(admin.has_add_permission(self.req))
+            self.assertFalse(admin.has_change_permission(self.req))
+            self.assertFalse(admin.has_delete_permission(self.req))
+            self.assertTrue(admin.has_view_permission(self.req))
+
+    def test_get_actions_has_no_delete_selected(self):
+        for admin in self._admins():
+            self.assertNotIn("delete_selected", admin.get_actions(self.req))
+
+    def test_pages_open_without_save_add(self):
+        detail_pages = [
+            f"/admin/inventory/stockmovement/{self.movement.id}/change/",
+            f"/admin/inventory/stock/{self.stock.id}/change/",
+        ]
+        for url in detail_pages:
+            resp = self.client.get(url)
+            self.assertEqual(resp.status_code, 200, url)
+            html = resp.content.decode()
+            self.assertNotIn('name="_save"', html)
+            self.assertNotIn('name="_continue"', html)
+            self.assertNotIn('name="_addanother"', html)
+
+        for url in ("/admin/inventory/stockmovement/", "/admin/inventory/stock/"):
+            resp = self.client.get(url)
+            self.assertEqual(resp.status_code, 200, url)
+            self.assertNotIn("addlink", resp.content.decode())  # нет кнопки «Добавить»
+
+    def test_post_add_change_delete_forbidden(self):
+        mv_before = StockMovement.objects.count()
+        add = self.client.post("/admin/inventory/stockmovement/add/", {})
+        change = self.client.post(
+            f"/admin/inventory/stockmovement/{self.movement.id}/change/", {}
+        )
+        delete = self.client.post(
+            f"/admin/inventory/stockmovement/{self.movement.id}/delete/", {"post": "yes"}
+        )
+        self.assertEqual(add.status_code, 403)
+        self.assertEqual(change.status_code, 403)
+        self.assertEqual(delete.status_code, 403)
+        self.assertEqual(StockMovement.objects.count(), mv_before)
+        self.assertEqual(self.movement, StockMovement.objects.get(pk=self.movement.pk))
+
+    def test_bulk_delete_selected_does_not_delete(self):
+        mv_before = StockMovement.objects.count()
+        st_before = Stock.objects.count()
+        self.client.post(
+            "/admin/inventory/stockmovement/",
+            {"action": "delete_selected", "_selected_action": [str(self.movement.id)]},
+        )
+        self.client.post(
+            "/admin/inventory/stock/",
+            {"action": "delete_selected", "_selected_action": [str(self.stock.id)]},
+        )
+        self.assertEqual(StockMovement.objects.count(), mv_before)
+        self.assertEqual(Stock.objects.count(), st_before)
