@@ -1,3 +1,4 @@
+from django.db.models import Q
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
@@ -34,6 +35,17 @@ def _cashier_branch(request):
     return None
 
 
+def _is_cashier(request):
+    membership = getattr(request, "membership", None)
+    return membership is not None and membership.role == CASHIER
+
+
+def _forbid_foreign_shift(request, shift):
+    """Кассир может работать (закрытие, Z-отчёт, чек) только со своей сменой."""
+    if _is_cashier(request) and shift.cashier_id != request.user.id:
+        raise PermissionDenied("Доступна только собственная смена.")
+
+
 class CashRegisterViewSet(TenantScopedViewSet):
     queryset = CashRegister.objects.select_related("branch", "warehouse")
     serializer_class = CashRegisterSerializer
@@ -61,7 +73,16 @@ class CashierShiftViewSet(
         tenant = getattr(self.request, "tenant", None)
         if tenant is None:
             return self.queryset.none()
-        return self.queryset.filter(tenant=tenant)
+        qs = self.queryset.filter(tenant=tenant)
+        # Кассир видит только свои смены и смены назначенного филиала;
+        # owner/manager — все смены тенанта.
+        if _is_cashier(self.request):
+            own = Q(cashier=self.request.user)
+            branch_id = _cashier_branch(self.request)
+            if branch_id is not None:
+                own |= Q(register__branch_id=branch_id)
+            qs = qs.filter(own)
+        return qs
 
     @action(detail=False, methods=["get"])
     def current(self, request):
@@ -100,6 +121,7 @@ class CashierShiftViewSet(
     @action(detail=True, methods=["post"])
     def close(self, request, pk=None):
         shift = self.get_object()
+        _forbid_foreign_shift(request, shift)
         serializer = CloseShiftSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         shift = close_shift(shift=shift, closing_cash=serializer.validated_data.get("closing_cash"))
@@ -107,7 +129,9 @@ class CashierShiftViewSet(
 
     @action(detail=True, methods=["get"])
     def z_report(self, request, pk=None):
-        return Response(build_z_report(self.get_object()))
+        shift = self.get_object()
+        _forbid_foreign_shift(request, shift)
+        return Response(build_z_report(shift))
 
 
 class SaleViewSet(
@@ -123,7 +147,11 @@ class SaleViewSet(
         tenant = getattr(self.request, "tenant", None)
         if tenant is None:
             return self.queryset.none()
-        return self.queryset.filter(tenant=tenant)
+        qs = self.queryset.filter(tenant=tenant)
+        # Кассир видит только свои продажи; owner/manager — все.
+        if _is_cashier(self.request):
+            qs = qs.filter(cashier=self.request.user)
+        return qs
 
     def create(self, request, *args, **kwargs):
         tenant = _require_tenant(request)
@@ -138,6 +166,14 @@ class SaleViewSet(
         )
         if shift is None:
             raise NotFound("Смена не найдена.")
+
+        # Кассир проводит чек только по СВОЕЙ смене и только в своём филиале.
+        if _is_cashier(request):
+            if shift.cashier_id != request.user.id:
+                raise PermissionDenied("Продажа возможна только по собственной смене.")
+            branch_id = _cashier_branch(request)
+            if branch_id is not None and shift.register.branch_id != branch_id:
+                raise PermissionDenied("Смена другого филиала недоступна.")
 
         variant_ids = [row["variant"] for row in data["items"]]
         variants = {
