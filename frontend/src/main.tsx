@@ -9,7 +9,9 @@ import "antd/dist/reset.css";
 import "./index.css";
 
 import { AppLayout } from "./shared/Layout";
+import { RequireRole } from "./shared/RequireRole";
 import { useAuth } from "./shared/auth";
+import { MANAGE_ROLES } from "./shared/roles";
 import { DashboardPage } from "./pages/DashboardPage";
 import { LoginPage } from "./pages/LoginPage";
 import { PosPage } from "./pages/PosPage";
@@ -44,9 +46,30 @@ const router = createBrowserRouter([
       { index: true, element: <Navigate to="/dashboard" replace /> },
       { path: "dashboard", element: <DashboardPage /> },
       { path: "pos", element: <PosPage /> },
-      { path: "receiving", element: <ReceivingPage /> },
-      { path: "products", element: <ProductsPage /> },
-      { path: "voice", element: <VoicePage /> },
+      {
+        path: "receiving",
+        element: (
+          <RequireRole roles={MANAGE_ROLES}>
+            <ReceivingPage />
+          </RequireRole>
+        ),
+      },
+      {
+        path: "products",
+        element: (
+          <RequireRole roles={MANAGE_ROLES}>
+            <ProductsPage />
+          </RequireRole>
+        ),
+      },
+      {
+        path: "voice",
+        element: (
+          <RequireRole roles={MANAGE_ROLES}>
+            <VoicePage />
+          </RequireRole>
+        ),
+      },
     ],
   },
 ]);

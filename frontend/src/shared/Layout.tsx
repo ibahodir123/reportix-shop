@@ -10,20 +10,22 @@ import {
 } from "@ant-design/icons";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button, Layout, Menu, Space, Typography } from "antd";
+import type { ReactNode } from "react";
 import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
 
 import { logout } from "./api";
 import { useAuth } from "./auth";
+import { visibleNav } from "./roles";
 
 const { Header, Sider, Content } = Layout;
 
-const items = [
-  { key: "/dashboard", icon: <DashboardOutlined />, label: <Link to="/dashboard">Сводка</Link> },
-  { key: "/pos", icon: <ShoppingCartOutlined />, label: <Link to="/pos">Касса</Link> },
-  { key: "/receiving", icon: <ImportOutlined />, label: <Link to="/receiving">Приёмка</Link> },
-  { key: "/products", icon: <AppstoreOutlined />, label: <Link to="/products">Товары</Link> },
-  { key: "/voice", icon: <AudioOutlined />, label: <Link to="/voice">Голосовой ввод</Link> },
-];
+const ICONS: Record<string, ReactNode> = {
+  "/dashboard": <DashboardOutlined />,
+  "/pos": <ShoppingCartOutlined />,
+  "/receiving": <ImportOutlined />,
+  "/products": <AppstoreOutlined />,
+  "/voice": <AudioOutlined />,
+};
 
 export function AppLayout() {
   const location = useLocation();
@@ -31,6 +33,13 @@ export function AppLayout() {
   const { user } = useAuth();
   const qc = useQueryClient();
   const nav = useNavigate();
+
+  // Меню по роли (backend всё равно защищает эндпоинты).
+  const items = visibleNav(user?.role ?? null).map((entry) => ({
+    key: entry.key,
+    icon: ICONS[entry.key],
+    label: <Link to={entry.key}>{entry.label}</Link>,
+  }));
 
   const logoutMut = useMutation({
     mutationFn: logout,

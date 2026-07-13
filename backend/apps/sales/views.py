@@ -5,6 +5,7 @@ from rest_framework.response import Response
 
 from apps.catalog.models import Variant
 from apps.common.api import TenantScopedViewSet
+from apps.common.permissions import CASHIER, PosAccess, RegistersAccess
 
 from .models import CashierShift, CashRegister, Sale
 from .serializers import (
@@ -25,9 +26,26 @@ def _require_tenant(request):
     return tenant
 
 
+def _cashier_branch(request):
+    """Филиал кассира, если он ограничен филиалом; иначе None."""
+    membership = getattr(request, "membership", None)
+    if membership is not None and membership.role == CASHIER and membership.branch_id:
+        return membership.branch_id
+    return None
+
+
 class CashRegisterViewSet(TenantScopedViewSet):
     queryset = CashRegister.objects.select_related("branch", "warehouse")
     serializer_class = CashRegisterSerializer
+    permission_classes = [RegistersAccess]
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        # Кассир с привязкой к филиалу видит только кассы своего филиала.
+        branch_id = _cashier_branch(self.request)
+        if branch_id is not None:
+            qs = qs.filter(branch_id=branch_id)
+        return qs
 
 
 class CashierShiftViewSet(
@@ -37,6 +55,7 @@ class CashierShiftViewSet(
 
     queryset = CashierShift.objects.select_related("register", "cashier")
     serializer_class = CashierShiftSerializer
+    permission_classes = [PosAccess]
 
     def get_queryset(self):
         tenant = getattr(self.request, "tenant", None)
@@ -65,6 +84,11 @@ class CashierShiftViewSet(
         register = serializer.validated_data["register"]
         if register.tenant_id != tenant.id:
             raise ValidationError("Касса принадлежит другому бизнесу.")
+        # Кассир с привязкой к филиалу может открывать смену только на кассе
+        # своего филиала.
+        branch_id = _cashier_branch(request)
+        if branch_id is not None and register.branch_id != branch_id:
+            raise PermissionDenied("Касса другого филиала недоступна.")
         shift = open_shift(
             tenant=tenant,
             register=register,
@@ -93,6 +117,7 @@ class SaleViewSet(
 
     queryset = Sale.objects.select_related("shift", "warehouse").prefetch_related("items__variant")
     serializer_class = SaleSerializer
+    permission_classes = [PosAccess]
 
     def get_queryset(self):
         tenant = getattr(self.request, "tenant", None)

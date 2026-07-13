@@ -4,6 +4,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.common.exceptions import PayloadTooLarge
+from apps.common.permissions import ManageCatalog
 
 from .serializers import VoiceParseSerializer
 from .services import transcribe_and_parse
@@ -19,6 +20,7 @@ class ParseProductView(APIView):
     """
 
     parser_classes = [MultiPartParser, FormParser, JSONParser]
+    permission_classes = [ManageCatalog]
 
     def post(self, request):
         serializer = VoiceParseSerializer(data=request.data)

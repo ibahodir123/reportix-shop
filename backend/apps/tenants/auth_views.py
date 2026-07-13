@@ -23,20 +23,23 @@ from rest_framework.views import APIView
 from .models import Membership
 
 
-def _me_payload(user):
+def _me_payload(user, active=None):
     memberships = (
         Membership.objects.filter(user=user)
         .select_related("tenant", "branch")
         .order_by("id")
     )
-    first = memberships.first()
+    # Активное членство: выбранный tenant (по X-Tenant-ID) либо первое.
+    active_m = active if active is not None else memberships.first()
     return {
         "id": user.id,
         "username": user.username,
         "phone": user.phone,
         "is_staff": user.is_staff,
+        "role": active_m.role if active_m else None,
+        "branch": active_m.branch_id if active_m else None,
         "current_tenant": (
-            {"id": first.tenant_id, "name": first.tenant.name} if first else None
+            {"id": active_m.tenant_id, "name": active_m.tenant.name} if active_m else None
         ),
         "memberships": [
             {
@@ -99,4 +102,5 @@ class MeView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        return Response(_me_payload(request.user))
+        # Роль/branch — по активному членству текущего tenant (из middleware).
+        return Response(_me_payload(request.user, active=getattr(request, "membership", None)))

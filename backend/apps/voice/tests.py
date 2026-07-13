@@ -2,7 +2,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import SimpleTestCase, TestCase, override_settings
 from rest_framework.test import APIClient
 
-from apps.tenants.models import User
+from apps.tenants.models import Membership, Tenant, User
 
 from .nlu import parse_product_draft
 from .number_words import tokenize, words_to_number
@@ -79,6 +79,10 @@ class MockProviderTests(SimpleTestCase):
 class VoiceApiTests(TestCase):
     def setUp(self):
         self.user = User.objects.create_user(username="u", password="pass12345")
+        tenant = Tenant.objects.create(name="Магазин", owner=self.user)
+        Membership.objects.create(
+            tenant=tenant, user=self.user, role=Membership.ROLE_OWNER
+        )
         self.client = APIClient()
         self.client.force_login(self.user)
 

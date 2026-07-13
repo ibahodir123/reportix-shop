@@ -86,11 +86,15 @@ export interface Membership {
   branch: number | null;
 }
 
+export type Role = "owner" | "manager" | "cashier";
+
 export interface CurrentUser {
   id: number;
   username: string;
   phone: string | null;
   is_staff: boolean;
+  role: Role | null;
+  branch: number | null;
   current_tenant: { id: number; name: string } | null;
   memberships: Membership[];
 }

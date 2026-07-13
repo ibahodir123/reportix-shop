@@ -4,6 +4,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.common.api import TenantScopedViewSet
+from apps.common.permissions import ManageCatalog, VariantsAccess
 
 from .models import Brand, Category, Product, Unit, Variant
 from .serializers import (
@@ -20,16 +21,19 @@ from .services import quick_create_product
 class CategoryViewSet(TenantScopedViewSet):
     queryset = Category.objects.all()
     serializer_class = CategorySerializer
+    permission_classes = [ManageCatalog]
 
 
 class BrandViewSet(TenantScopedViewSet):
     queryset = Brand.objects.all()
     serializer_class = BrandSerializer
+    permission_classes = [ManageCatalog]
 
 
 class UnitViewSet(TenantScopedViewSet):
     queryset = Unit.objects.all()
     serializer_class = UnitSerializer
+    permission_classes = [ManageCatalog]
 
 
 class ProductViewSet(TenantScopedViewSet):
@@ -37,6 +41,7 @@ class ProductViewSet(TenantScopedViewSet):
         "variants__barcodes"
     )
     serializer_class = ProductSerializer
+    permission_classes = [ManageCatalog]
 
     def get_queryset(self):
         qs = super().get_queryset()
@@ -52,6 +57,8 @@ class QuickProductCreateView(APIView):
     черновика: Product + Variant (+ опциональный приход количества на склад).
     """
 
+    permission_classes = [ManageCatalog]
+
     def post(self, request):
         tenant = getattr(request, "tenant", None)
         if tenant is None:
@@ -66,6 +73,7 @@ class QuickProductCreateView(APIView):
 class VariantViewSet(TenantScopedViewSet):
     queryset = Variant.objects.select_related("product").prefetch_related("barcodes")
     serializer_class = VariantSerializer
+    permission_classes = [VariantsAccess]
 
     def get_queryset(self):
         qs = super().get_queryset()

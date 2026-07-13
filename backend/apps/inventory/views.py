@@ -4,6 +4,7 @@ from rest_framework.response import Response
 
 from apps.catalog.models import Variant
 from apps.common.api import TenantScopedViewSet
+from apps.common.permissions import ManageInventory, StockRead
 
 from .models import Receipt, Stock, StockMovement, Warehouse
 from .serializers import (
@@ -19,6 +20,7 @@ from .services import create_receipt, record_movement
 class WarehouseViewSet(TenantScopedViewSet):
     queryset = Warehouse.objects.select_related("branch")
     serializer_class = WarehouseSerializer
+    permission_classes = [ManageInventory]
 
 
 class StockViewSet(
@@ -28,6 +30,7 @@ class StockViewSet(
 
     queryset = Stock.objects.select_related("warehouse", "variant__product")
     serializer_class = StockSerializer
+    permission_classes = [StockRead]
 
     def get_queryset(self):
         tenant = getattr(self.request, "tenant", None)
@@ -49,6 +52,7 @@ class StockMovementViewSet(
 
     queryset = StockMovement.objects.select_related("warehouse", "variant")
     serializer_class = StockMovementSerializer
+    permission_classes = [ManageInventory]
 
     def get_queryset(self):
         tenant = getattr(self.request, "tenant", None)
@@ -92,6 +96,7 @@ class ReceiptViewSet(
 
     queryset = Receipt.objects.select_related("warehouse").prefetch_related("items__variant")
     serializer_class = ReceiptSerializer
+    permission_classes = [ManageInventory]
 
     def get_queryset(self):
         tenant = getattr(self.request, "tenant", None)
