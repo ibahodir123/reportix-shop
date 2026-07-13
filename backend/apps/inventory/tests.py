@@ -429,10 +429,16 @@ class StockAuditAdminTests(TestCase):
             self.assertNotIn('name="_continue"', html)
             self.assertNotIn('name="_addanother"', html)
 
-        for url in ("/admin/inventory/stockmovement/", "/admin/inventory/stock/"):
+        # Нет ссылки «Добавить» именно для этих моделей (класс addlink может
+        # присутствовать в боковом меню для других моделей — проверяем URL).
+        changelists = {
+            "/admin/inventory/stockmovement/": "/admin/inventory/stockmovement/add/",
+            "/admin/inventory/stock/": "/admin/inventory/stock/add/",
+        }
+        for url, add_url in changelists.items():
             resp = self.client.get(url)
             self.assertEqual(resp.status_code, 200, url)
-            self.assertNotIn("addlink", resp.content.decode())  # нет кнопки «Добавить»
+            self.assertNotContains(resp, add_url)
 
     def test_post_add_change_delete_forbidden(self):
         mv_before = StockMovement.objects.count()
