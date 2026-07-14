@@ -128,6 +128,90 @@ class ReturnServiceTests(TestCase):
         with self.assertRaises(DjangoValidationError):
             doc.items.first().delete()
 
+    def test_duplicate_sale_item_grouped_and_summed(self):
+        # Дубли одной позиции в запросе суммируются в одну строку возврата.
+        doc = self._return(
+            [(self.si1, "2"), (self.si1, "2")], payment_type=Return.PAYMENT_CASH
+        )
+        self.assertEqual(doc.items.count(), 1)
+        self.assertEqual(doc.items.first().quantity, Decimal("4.000"))
+        self.assertEqual(_stock(self.wh, self.v1), Decimal("99.000"))  # 95 + 4
+
+    def test_duplicate_sale_item_total_exceeds_rejected(self):
+        # 3 + 3 = 6 > продано 5 — отклоняется по СУММАРНОМУ количеству.
+        with self.assertRaises(DRFValidationError):
+            self._return(
+                [(self.si1, "3"), (self.si1, "3")], payment_type=Return.PAYMENT_CASH
+            )
+        self.assertEqual(Return.objects.count(), 0)
+        self.assertEqual(_stock(self.wh, self.v1), Decimal("95.000"))
+
+
+class ReturnDiscountTests(TestCase):
+    """Возврат с учётом скидок: полный = sale.total, частичные ≤ sale.total."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(username="c", password="pass12345")
+        self.tenant = Tenant.objects.create(name="Магазин", owner=self.user)
+        self.branch = Branch.objects.create(tenant=self.tenant, name="Центр")
+        self.wh = Warehouse.objects.create(tenant=self.tenant, branch=self.branch, name="Склад")
+        self.unit = Unit.objects.create(tenant=self.tenant, name="Штука", short_name="шт")
+        product = Product.objects.create(tenant=self.tenant, name="Товар", unit=self.unit)
+        self.v1 = Variant.objects.create(
+            tenant=self.tenant, product=product, sku="A-1", purchase_price=Decimal("40"), sale_price=Decimal("100")
+        )
+        self.v2 = Variant.objects.create(
+            tenant=self.tenant, product=product, sku="A-2", purchase_price=Decimal("30"), sale_price=Decimal("100")
+        )
+        for v in (self.v1, self.v2):
+            record_movement(
+                tenant=self.tenant, warehouse=self.wh, variant=v,
+                movement_type=StockMovement.TYPE_IN, quantity=Decimal("100"),
+            )
+        self.register = CashRegister.objects.create(
+            tenant=self.tenant, branch=self.branch, warehouse=self.wh, name="Касса 1"
+        )
+        self.shift = open_shift(tenant=self.tenant, register=self.register, cashier=self.user)
+        # v1: 2×100 − строчная 20 = 180; v2: 1×100 = 100; − скидка на чек 30 → total 250.
+        self.sale = create_sale(
+            tenant=self.tenant, shift=self.shift, cashier=self.user,
+            items=[
+                {"variant": self.v1, "quantity": Decimal("2"), "price": Decimal("100"), "discount": Decimal("20")},
+                {"variant": self.v2, "quantity": Decimal("1"), "price": Decimal("100")},
+            ],
+            discount=Decimal("30"),
+            paid_cash=Decimal("250"),
+        )
+        self.si1 = self.sale.items.get(variant=self.v1)
+        self.si2 = self.sale.items.get(variant=self.v2)
+
+    def _return(self, item_qtys, **kw):
+        items = [{"sale_item": si, "quantity": Decimal(q)} for si, q in item_qtys]
+        return create_return(
+            tenant=self.tenant, sale=self.sale, created_by=self.user, shift=self.shift,
+            items=items, **kw,
+        )
+
+    def test_full_return_equals_sale_total(self):
+        self.assertEqual(self.sale.total, Decimal("250.00"))
+        doc = self._return([(self.si1, "2"), (self.si2, "1")], payment_type=Return.PAYMENT_CASH)
+        self.assertEqual(doc.refund_total, self.sale.total)  # 250.00
+
+    def test_partial_returns_never_exceed_total(self):
+        r1 = self._return([(self.si1, "1")], payment_type=Return.PAYMENT_CASH)
+        r2 = self._return([(self.si1, "1")], payment_type=Return.PAYMENT_CASH)
+        r3 = self._return([(self.si2, "1")], payment_type=Return.PAYMENT_CASH)
+        running = Decimal("0")
+        for r in (r1, r2, r3):
+            running += r.refund_total
+            self.assertLessEqual(running, self.sale.total)  # никогда не превышает
+        self.assertEqual(running, self.sale.total)  # в сумме ровно sale.total
+
+    def test_cannot_exceed_after_full_line(self):
+        self._return([(self.si1, "2")], payment_type=Return.PAYMENT_CASH)  # позиция закрыта
+        with self.assertRaises(DRFValidationError):
+            self._return([(self.si1, "1")], payment_type=Return.PAYMENT_CASH)
+
 
 class ReturnApiTests(TestCase):
     def setUp(self):

@@ -203,6 +203,40 @@ def returned_qty_for(sale_item):
     return agg["s"] or Decimal("0")
 
 
+def _sale_allocations(sale):
+    """
+    Распределяет sale.total (после строчных скидок и скидки на чек) по позициям.
+    Сумма распределения строго равна sale.total (остаток округления — последней
+    позиции). Это гарантирует, что полный возврат всех позиций даёт ровно
+    sale.total, а сумма частичных возвратов его не превышает.
+    """
+    items = list(sale.items.all().order_by("id"))
+    allocations = {}
+    if not items:
+        return allocations
+
+    subtotal = sale.subtotal or Decimal("0")
+    total = sale.total or Decimal("0")
+    if subtotal > 0:
+        running = Decimal("0")
+        for sale_item in items[:-1]:
+            alloc = (sale_item.total * total / subtotal).quantize(TWO)
+            allocations[sale_item.id] = alloc
+            running += alloc
+        allocations[items[-1].id] = (total - running).quantize(TWO)
+    else:
+        for sale_item in items:
+            allocations[sale_item.id] = Decimal("0")
+    return allocations
+
+
+def _cumulative_refund(alloc, sold, returned):
+    """Пропорциональный возврат для `returned` единиц позиции (округление 2 зн.)."""
+    if sold <= 0:
+        return Decimal("0")
+    return (alloc * returned / sold).quantize(TWO)
+
+
 @transaction.atomic
 def create_return(
     *,
@@ -233,9 +267,8 @@ def create_return(
     if not items:
         raise ValidationError("Не выбраны позиции для возврата.")
 
-    # Валидация и подсчёт итога ДО создания документа.
-    prepared = []
-    refund_total = Decimal("0")
+    # Группируем повторяющиеся позиции в запросе и суммируем количество.
+    grouped = {}  # sale_item.id -> [sale_item, qty]
     for row in items:
         sale_item = row["sale_item"]
         if sale_item.sale_id != sale.id:
@@ -243,14 +276,31 @@ def create_return(
         qty = _d(row["quantity"])
         if qty <= 0:
             raise ValidationError("Количество возврата должно быть больше нуля.")
-        available = sale_item.quantity - returned_qty_for(sale_item)
+        if sale_item.id in grouped:
+            grouped[sale_item.id][1] += qty
+        else:
+            grouped[sale_item.id] = [sale_item, qty]
+
+    # Возврат считаем с учётом скидок (строчных и на чек).
+    allocations = _sale_allocations(sale)
+
+    prepared = []
+    refund_total = Decimal("0")
+    for sale_item, qty in grouped.values():
+        already = returned_qty_for(sale_item)
+        available = sale_item.quantity - already
         if qty > available:
             raise ValidationError(
                 f"Нельзя вернуть больше проданного: доступно {available}, запрошено {qty}."
             )
-        line_total = (qty * sale_item.price).quantize(TWO)
-        prepared.append((sale_item, qty, sale_item.price, line_total, sale_item.cost_price))
-        refund_total += line_total
+        alloc = allocations.get(sale_item.id, Decimal("0"))
+        # Дельта пропорционального возврата: гарантирует, что полный возврат
+        # позиции даёт ровно её долю в sale.total, а частичные не превышают её.
+        refund_line = _cumulative_refund(
+            alloc, sale_item.quantity, already + qty
+        ) - _cumulative_refund(alloc, sale_item.quantity, already)
+        prepared.append((sale_item, qty, sale_item.price, refund_line, sale_item.cost_price))
+        refund_total += refund_line
     refund_total = refund_total.quantize(TWO)
 
     # Способ и сумма возврата денег.
