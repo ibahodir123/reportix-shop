@@ -43,19 +43,16 @@ class AssistantHappyPathTests(AssistantBase):
     PHRASE = "Прими футболку синяя размер эль закуп 45 тысяч продажа 79 тысяч 20 штук"
 
     def test_intake_dialog_creates_product_and_stock(self):
+        # Единственный склад выбирается автоматически → сразу подтверждение.
         step1 = self.say(self.PHRASE)
-        self.assertEqual(step1["state"], "collecting")
-        self.assertIn("склад", step1["reply"].lower())
+        self.assertEqual(step1["state"], "confirm")
+        self.assertIsNotNone(step1["draft"])
+        self.assertEqual(step1["draft"]["product"]["quantity"], "20")
         cid = step1["conversation_id"]
 
-        step2 = self.say("Да", cid)
-        self.assertEqual(step2["state"], "confirm")
-        self.assertIsNotNone(step2["draft"])
-        self.assertEqual(step2["draft"]["product"]["quantity"], "20")
-
-        step3 = self.say("Подтверждаю", cid)
-        self.assertEqual(step3["state"], "done")
-        self.assertIsNotNone(step3["result"])
+        step2 = self.say("Подтверждаю", cid)
+        self.assertEqual(step2["state"], "done")
+        self.assertIsNotNone(step2["result"])
 
         product = Product.objects.get(tenant=self.tenant)
         variant = product.variants.get()
@@ -77,7 +74,6 @@ class AssistantHappyPathTests(AssistantBase):
 
     def test_double_confirm_creates_single_product(self):
         cid = self.say(self.PHRASE)["conversation_id"]
-        self.say("Да", cid)
         self.say("Подтверждаю", cid)
         # Повторное «Подтверждаю» на завершённом диалоге — не создаёт дубль.
         again = self.say("Подтверждаю", cid)
@@ -101,19 +97,19 @@ class AssistantCollectingTests(AssistantBase):
 
     def test_cancel_at_confirm(self):
         cid = self.say(AssistantHappyPathTests.PHRASE)["conversation_id"]
-        self.say("Да", cid)
         out = self.say("Отмена", cid)
         self.assertEqual(out["state"], "cancelled")
         self.assertEqual(Product.objects.filter(tenant=self.tenant).count(), 0)
 
-    def test_decline_warehouse_then_pick_another(self):
+    def test_multiple_warehouses_pick_by_name(self):
+        # Складов больше одного → помощник спрашивает, на какой.
         Warehouse.objects.create(
             tenant=self.tenant, branch=self.branch, name="Второй"
         )
-        cid = self.say(AssistantHappyPathTests.PHRASE)["conversation_id"]
-        out = self.say("Нет", cid)
-        self.assertEqual(out["state"], "collecting")
-        self.assertIn("какой склад", out["reply"].lower())
+        step1 = self.say(AssistantHappyPathTests.PHRASE)
+        self.assertEqual(step1["state"], "collecting")
+        self.assertIn("какой склад", step1["reply"].lower())
+        cid = step1["conversation_id"]
         pick = self.say("Второй", cid)
         self.assertEqual(pick["state"], "confirm")
 
@@ -181,10 +177,7 @@ class AssistantPermissionTests(AssistantBase):
             conversation_id=None, text=phrase,
         )
         cid = start["conversation_id"]
-        handle_message(
-            tenant=self.tenant, user=cashier, membership=membership,
-            conversation_id=cid, text="Да",
-        )
+        # Единственный склад авто-выбран → сразу подтверждение → выполнение.
         out = handle_message(
             tenant=self.tenant, user=cashier, membership=membership,
             conversation_id=cid, text="Подтверждаю",

@@ -46,7 +46,7 @@ describe("AssistantPage", () => {
     expect(post).toHaveBeenCalledWith("/assistant/message/", {
       conversation_id: undefined,
       text: "Прими 20 футболок",
-      language: "uz-UZ",
+      language: "ru-RU",
     });
   });
 

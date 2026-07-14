@@ -295,13 +295,17 @@ def _advance(tenant, user, conversation_id, state):
         if not warehouses:
             _clear(tenant, user, conversation_id)
             return _reply(conversation_id, _t(lang, "no_warehouse"), "cancelled")
-        proposed = warehouses[0]
-        slots["_proposed_wh"] = proposed.id
-        state["awaiting"] = "warehouse"
-        _save(tenant, user, conversation_id, state)
-        return _reply(
-            conversation_id, _t(lang, "ask_warehouse_one", name=proposed.name), "collecting"
-        )
+        if len(warehouses) == 1:
+            # Единственный склад — выбираем сам, без лишнего голосового «да».
+            slots["warehouse_id"] = warehouses[0].id
+            slots["warehouse_name"] = warehouses[0].name
+        else:
+            names = ", ".join(f"«{w.name}»" for w in warehouses)
+            state["awaiting"] = "warehouse_pick"
+            _save(tenant, user, conversation_id, state)
+            return _reply(
+                conversation_id, _t(lang, "ask_warehouse_pick", names=names), "collecting"
+            )
 
     state["phase"] = "confirm"
     state["awaiting"] = "confirm"

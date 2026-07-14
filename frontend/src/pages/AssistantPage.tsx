@@ -57,7 +57,7 @@ export function ChatBubble({ msg }: { msg: ChatMsg }) {
 export function AssistantPage() {
   const [messages, setMessages] = useState<ChatMsg[]>([GREETING]);
   const [input, setInput] = useState("");
-  const [language, setLanguage] = useState("uz-UZ");
+  const [language, setLanguage] = useState("ru-RU");
   const [lastState, setLastState] = useState<ChatState | null>(null);
   const [recording, setRecording] = useState(false);
   const convIdRef = useRef<string | null>(null);
@@ -173,13 +173,16 @@ export function AssistantPage() {
           <Space style={{ marginBottom: 8 }}>
             <Button
               type="primary"
-              onClick={() => sendText("Подтверждаю")}
+              onClick={() => sendText(language.startsWith("uz") ? "Tasdiqlayman" : "Подтверждаю")}
               disabled={sendMut.isPending}
             >
-              Подтверждаю
+              {language.startsWith("uz") ? "Tasdiqlayman" : "Подтверждаю"}
             </Button>
-            <Button onClick={() => sendText("Отмена")} disabled={sendMut.isPending}>
-              Отмена
+            <Button
+              onClick={() => sendText(language.startsWith("uz") ? "Bekor qilish" : "Отмена")}
+              disabled={sendMut.isPending}
+            >
+              {language.startsWith("uz") ? "Bekor qilish" : "Отмена"}
             </Button>
           </Space>
         )}
