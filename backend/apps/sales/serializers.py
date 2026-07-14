@@ -85,9 +85,9 @@ class SaleSerializer(serializers.ModelSerializer):
 
 class SaleItemInputSerializer(serializers.Serializer):
     variant = serializers.IntegerField()
-    quantity = serializers.DecimalField(max_digits=18, decimal_places=3)
-    price = serializers.DecimalField(max_digits=18, decimal_places=2)
-    discount = serializers.DecimalField(max_digits=18, decimal_places=2, default=0)
+    quantity = serializers.DecimalField(max_digits=18, decimal_places=3, min_value=0)
+    price = serializers.DecimalField(max_digits=18, decimal_places=2, min_value=0)
+    discount = serializers.DecimalField(max_digits=18, decimal_places=2, default=0, min_value=0)
 
 
 class SaleCreateSerializer(serializers.Serializer):
@@ -95,9 +95,9 @@ class SaleCreateSerializer(serializers.Serializer):
     payment_type = serializers.ChoiceField(
         choices=Sale.PAYMENT_CHOICES, default=Sale.PAYMENT_CASH
     )
-    discount = serializers.DecimalField(max_digits=18, decimal_places=2, default=0)
-    paid_cash = serializers.DecimalField(max_digits=18, decimal_places=2, default=0)
-    paid_card = serializers.DecimalField(max_digits=18, decimal_places=2, default=0)
+    discount = serializers.DecimalField(max_digits=18, decimal_places=2, default=0, min_value=0)
+    paid_cash = serializers.DecimalField(max_digits=18, decimal_places=2, default=0, min_value=0)
+    paid_card = serializers.DecimalField(max_digits=18, decimal_places=2, default=0, min_value=0)
     client_uuid = serializers.UUIDField(required=False, allow_null=True)
     items = SaleItemInputSerializer(many=True)
 
@@ -163,7 +163,7 @@ class ReturnSerializer(serializers.ModelSerializer):
 
 class ReturnItemInputSerializer(serializers.Serializer):
     sale_item = serializers.IntegerField()
-    quantity = serializers.DecimalField(max_digits=18, decimal_places=3)
+    quantity = serializers.DecimalField(max_digits=18, decimal_places=3, min_value=0)
 
 
 class ReturnCreateSerializer(serializers.Serializer):
@@ -172,8 +172,8 @@ class ReturnCreateSerializer(serializers.Serializer):
     payment_type = serializers.ChoiceField(
         choices=Return.PAYMENT_CHOICES, default=Return.PAYMENT_CASH
     )
-    refund_cash = serializers.DecimalField(max_digits=18, decimal_places=2, default=0)
-    refund_card = serializers.DecimalField(max_digits=18, decimal_places=2, default=0)
+    refund_cash = serializers.DecimalField(max_digits=18, decimal_places=2, default=0, min_value=0)
+    refund_card = serializers.DecimalField(max_digits=18, decimal_places=2, default=0, min_value=0)
     client_uuid = serializers.UUIDField(required=False, allow_null=True)
     items = ReturnItemInputSerializer(many=True)
 

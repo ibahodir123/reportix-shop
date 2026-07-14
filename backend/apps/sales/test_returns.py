@@ -11,8 +11,8 @@ from apps.inventory.models import Stock, StockMovement, Warehouse
 from apps.inventory.services import record_movement
 from apps.tenants.models import Branch, Membership, Tenant, User
 
-from .models import CashRegister, Return, ReturnItem
-from .services import create_return, create_sale, open_shift
+from .models import CashRegister, Return, ReturnItem, Sale, SaleItem
+from .services import _sale_allocations, create_return, create_sale, open_shift
 
 
 def _stock(warehouse, variant):
@@ -211,6 +211,78 @@ class ReturnDiscountTests(TestCase):
         self._return([(self.si1, "2")], payment_type=Return.PAYMENT_CASH)  # позиция закрыта
         with self.assertRaises(DRFValidationError):
             self._return([(self.si1, "1")], payment_type=Return.PAYMENT_CASH)
+
+    # --- Гарды скидок в create_sale (сервисный уровень) ---------------------
+    def _sell(self, *, discount=Decimal("0"), line_discount=Decimal("0"), price=Decimal("100")):
+        return create_sale(
+            tenant=self.tenant, shift=self.shift, cashier=self.user,
+            items=[{"variant": self.v1, "quantity": Decimal("1"), "price": price, "discount": line_discount}],
+            discount=discount, paid_cash=Decimal("1000"),
+        )
+
+    def test_reject_negative_line_discount(self):
+        with self.assertRaises(DRFValidationError):
+            self._sell(line_discount=Decimal("-5"))
+
+    def test_reject_line_discount_over_value(self):
+        with self.assertRaises(DRFValidationError):
+            self._sell(line_discount=Decimal("200"))  # > 1×100
+
+    def test_reject_negative_check_discount(self):
+        with self.assertRaises(DRFValidationError):
+            self._sell(discount=Decimal("-10"))
+
+
+class ReturnAllocationEdgeTests(TestCase):
+    """Крайний случай распределения: 100 позиций по 1,00, итог 0,60."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(username="c", password="pass12345")
+        self.tenant = Tenant.objects.create(name="Магазин", owner=self.user)
+        self.branch = Branch.objects.create(tenant=self.tenant, name="Центр")
+        self.wh = Warehouse.objects.create(tenant=self.tenant, branch=self.branch, name="Склад")
+        self.unit = Unit.objects.create(tenant=self.tenant, name="Штука", short_name="шт")
+        product = Product.objects.create(tenant=self.tenant, name="Товар", unit=self.unit)
+        self.variant = Variant.objects.create(
+            tenant=self.tenant, product=product, sku="A-1", purchase_price=Decimal("0"), sale_price=Decimal("1")
+        )
+        self.register = CashRegister.objects.create(
+            tenant=self.tenant, branch=self.branch, warehouse=self.wh, name="Касса 1"
+        )
+        self.shift = open_shift(tenant=self.tenant, register=self.register, cashier=self.user)
+        # 100 позиций по 1,00; скидка на чек 99,40 → total 0,60. Собираем чек вручную,
+        # чтобы не плодить 100 вариантов/остатков (для расчёта долей это не важно).
+        self.sale = Sale.objects.create(
+            tenant=self.tenant, branch=self.branch, shift=self.shift, warehouse=self.wh,
+            cashier=self.user, number=1, subtotal=Decimal("100.00"),
+            discount=Decimal("99.40"), total=Decimal("0.60"), payment_type=Sale.PAYMENT_CASH,
+            paid_cash=Decimal("0.60"), paid_card=Decimal("0"), change=Decimal("0"),
+        )
+        for _ in range(100):
+            SaleItem.objects.create(
+                sale=self.sale, variant=self.variant, quantity=Decimal("1"),
+                price=Decimal("1"), discount=Decimal("0"), cost_price=Decimal("0"),
+                total=Decimal("1.00"),
+            )
+
+    def test_allocations_non_negative_and_exact(self):
+        allocs = _sale_allocations(self.sale)
+        self.assertEqual(len(allocs), 100)
+        self.assertTrue(all(a >= 0 for a in allocs.values()))  # нет отрицательных долей
+        self.assertEqual(sum(allocs.values()), Decimal("0.60"))  # строго 0,60
+
+    def test_partial_returns_never_exceed_total(self):
+        items = list(self.sale.items.order_by("id"))
+        running = Decimal("0")
+        for batch in (items[:40], items[40:80], items[80:]):
+            rows = [{"sale_item": si, "quantity": Decimal("1")} for si in batch]
+            doc = create_return(
+                tenant=self.tenant, sale=self.sale, created_by=self.user, shift=self.shift,
+                items=rows, payment_type=Return.PAYMENT_CASH,
+            )
+            running += doc.refund_total
+            self.assertLessEqual(running, self.sale.total)  # нигде не превышает 0,60
+        self.assertEqual(running, self.sale.total)  # в сумме ровно 0,60
 
 
 class ReturnApiTests(TestCase):

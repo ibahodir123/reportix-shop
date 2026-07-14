@@ -1,4 +1,4 @@
-from decimal import Decimal
+from decimal import ROUND_FLOOR, Decimal
 
 from django.db import transaction
 from django.db.models import Count, Sum
@@ -123,6 +123,8 @@ def create_sale(
     discount = _d(discount)
     paid_cash = _d(paid_cash)
     paid_card = _d(paid_card)
+    if discount < 0:
+        raise ValidationError("Скидка на чек не может быть отрицательной.")
 
     subtotal = Decimal("0")
     prepared = []
@@ -134,7 +136,13 @@ def create_sale(
         if qty <= 0:
             raise ValidationError("Количество должно быть больше нуля.")
         price = _d(row["price"])
+        if price < 0:
+            raise ValidationError("Цена не может быть отрицательной.")
         line_discount = _d(row.get("discount", 0))
+        if line_discount < 0:
+            raise ValidationError("Скидка на позицию не может быть отрицательной.")
+        if line_discount > (qty * price):
+            raise ValidationError("Скидка на позицию не может превышать её стоимость.")
         line_total = (qty * price - line_discount).quantize(TWO)
         subtotal += line_total
         prepared.append(
@@ -205,29 +213,43 @@ def returned_qty_for(sale_item):
 
 def _sale_allocations(sale):
     """
-    Распределяет sale.total (после строчных скидок и скидки на чек) по позициям.
-    Сумма распределения строго равна sale.total (остаток округления — последней
-    позиции). Это гарантирует, что полный возврат всех позиций даёт ровно
-    sale.total, а сумма частичных возвратов его не превышает.
+    Распределяет sale.total (после строчных скидок и скидки на чек) по позициям
+    методом наибольших остатков (largest remainder):
+      - точная доля позиции = si.total / subtotal * total;
+      - округляем ВНИЗ до копейки;
+      - оставшиеся копейки раздаём позициям с наибольшей дробной частью.
+    Гарантии: каждая доля >= 0; сумма долей строго равна sale.total. Поэтому
+    полный возврат всех позиций даёт ровно sale.total, а частичные — не больше.
     """
     items = list(sale.items.all().order_by("id"))
-    allocations = {}
     if not items:
-        return allocations
+        return {}
 
     subtotal = sale.subtotal or Decimal("0")
     total = sale.total or Decimal("0")
-    if subtotal > 0:
-        running = Decimal("0")
-        for sale_item in items[:-1]:
-            alloc = (sale_item.total * total / subtotal).quantize(TWO)
-            allocations[sale_item.id] = alloc
-            running += alloc
-        allocations[items[-1].id] = (total - running).quantize(TWO)
-    else:
-        for sale_item in items:
-            allocations[sale_item.id] = Decimal("0")
-    return allocations
+    if subtotal <= 0 or total <= 0:
+        return {si.id: Decimal("0") for si in items}
+
+    total_kop = int((total * 100).to_integral_value())
+    floors = {}
+    remainders = []  # (дробная часть, id)
+    allocated = 0
+    for si in items:
+        line = si.total if (si.total and si.total > 0) else Decimal("0")
+        exact = line * total_kop / subtotal  # в копейках
+        floor_kop = int(exact.to_integral_value(rounding=ROUND_FLOOR))
+        floor_kop = max(floor_kop, 0)
+        floors[si.id] = floor_kop
+        allocated += floor_kop
+        remainders.append((exact - floor_kop, si.id))
+
+    leftover = max(0, total_kop - allocated)
+    # Наибольшая дробная часть первой; при равенстве — меньший id.
+    remainders.sort(key=lambda t: (-t[0], t[1]))
+    for i in range(leftover):
+        floors[remainders[i][1]] += 1
+
+    return {sid: (Decimal(kop) / 100).quantize(TWO) for sid, kop in floors.items()}
 
 
 def _cumulative_refund(alloc, sold, returned):
