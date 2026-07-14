@@ -53,6 +53,7 @@ class AssistantMessageView(APIView):
             membership=request.membership,
             conversation_id=data.get("conversation_id"),
             text=text,
+            language=data.get("language", "uz-UZ"),
         )
         # Для голоса возвращаем распознанный текст — чтобы показать в чате, что
         # именно расслышал распознаватель (видно, где теряется слово).

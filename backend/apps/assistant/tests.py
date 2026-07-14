@@ -31,7 +31,7 @@ class AssistantBase(TestCase):
         self.client.force_login(self.user)
 
     def say(self, text, conversation_id=None):
-        payload = {"text": text}
+        payload = {"text": text, "language": "ru-RU"}
         if conversation_id:
             payload["conversation_id"] = conversation_id
         resp = self.client.post(URL, payload, format="json")

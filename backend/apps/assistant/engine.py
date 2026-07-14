@@ -6,8 +6,9 @@
 атомарный сервис (quick_create_product). Мозг (brain.py) лишь понимает язык;
 запись в БД — здесь, с повторной проверкой прав (защита в глубину).
 
-Состояние хранится в кэше (Redis в проде, locmem в тестах), ключ по тенанту,
-пользователю и conversation_id, TTL 30 минут. Клиент возвращает conversation_id.
+Ответы движка локализованы (ru/uz) — язык берётся из запроса и хранится в
+состоянии диалога. Состояние — в кэше (Redis в проде, locmem в тестах), ключ по
+тенанту, пользователю и conversation_id, TTL 30 минут.
 """
 
 from decimal import Decimal, InvalidOperation
@@ -32,17 +33,74 @@ from .brain import get_brain
 STATE_TTL = 30 * 60  # 30 минут
 _INTAKE_ROLES = {OWNER, MANAGER}
 
-# Порядок дозапроса текстово-числовых полей: (поле, вопрос).
-_REQUIRED_STEPS = [
-    ("name", "Как называется товар?"),
-    ("quantity", "Сколько штук приходуем?"),
-    ("sale_price", "По какой цене продаём?"),
-]
+# Обязательные текстово-числовые поля (порядок дозапроса) — вопросы в _TEXTS.
+_REQUIRED_FIELDS = ["name", "quantity", "sale_price"]
 
-_HELP = (
-    "Скажите, что принять на склад. Например: «Прими 20 синих футболок "
-    "размера L по 45 тысяч, продажа 79 тысяч»."
-)
+# --- Локализация ответов ---------------------------------------------------
+_TEXTS = {
+    "ru": {
+        "help": (
+            "Скажите, что принять на склад. Например: «Прими 20 синих футболок "
+            "размера L по 45 тысяч, продажа 79 тысяч»."
+        ),
+        "cancelled": "Хорошо, отменил.",
+        "ask_name": "Как называется товар?",
+        "ask_quantity": "Сколько штук приходуем?",
+        "ask_sale_price": "По какой цене продаём?",
+        "ask_warehouse_one": "На склад «{name}»?",
+        "ask_warehouse_pick": "На какой склад? Есть: {names}.",
+        "warehouse_not_found": "Не нашёл такой склад. Есть: {names}.",
+        "no_warehouse": "Сначала создайте склад, потом повторите приёмку.",
+        "bad_number": "Не понял число, повторите пожалуйста.",
+        "no_permission": "Недостаточно прав для приёмки товара.",
+        "exec_error": "Не получилось: {detail}",
+        "confirm_create": "Создать товар «{name}»",
+        "confirm_intake": "и оприходовать {qty} шт",
+        "confirm_warehouse": "на склад «{name}»",
+        "purchase": "закуп {v}",
+        "sale": "продажа {v}",
+        "done": (
+            "Готово: создан товар «{name}», оприходовано {qty} шт на склад «{wh}»."
+        ),
+    },
+    "uz": {
+        "help": (
+            "Omborga nima qabul qilishni ayting. Masalan: «20 ta ko'k L o'lchamli "
+            "futbolka qabul qil, tannarx 45 ming, sotuv 79 ming»."
+        ),
+        "cancelled": "Yaxshi, bekor qildim.",
+        "ask_name": "Tovar nomi qanday?",
+        "ask_quantity": "Nechta dona qabul qilamiz?",
+        "ask_sale_price": "Sotuv narxi qancha?",
+        "ask_warehouse_one": "«{name}» omboriga?",
+        "ask_warehouse_pick": "Qaysi omborga? Bor: {names}.",
+        "warehouse_not_found": "Bunday ombor topilmadi. Bor: {names}.",
+        "no_warehouse": "Avval ombor yarating, keyin qabulni takrorlang.",
+        "bad_number": "Sonni tushunmadim, iltimos qaytaring.",
+        "no_permission": "Tovar qabul qilishga ruxsat yo'q.",
+        "exec_error": "Bo'lmadi: {detail}",
+        "confirm_create": "«{name}» tovarini yaratamizmi",
+        "confirm_intake": "va {qty} dona qabul qilamiz",
+        "confirm_warehouse": "«{name}» omboriga",
+        "purchase": "tannarx {v}",
+        "sale": "sotuv {v}",
+        "done": (
+            "Tayyor: «{name}» tovari yaratildi, «{wh}» omboriga {qty} dona qabul qilindi."
+        ),
+    },
+}
+
+
+def _lang_of(language):
+    """uz-UZ → 'uz', остальное → 'ru'."""
+    if language and str(language).lower().startswith("uz"):
+        return "uz"
+    return "ru"
+
+
+def _t(lang, key, **kw):
+    text = _TEXTS.get(lang, _TEXTS["ru"]).get(key, _TEXTS["ru"][key])
+    return text.format(**kw) if kw else text
 
 
 # --- Хранилище состояния ---------------------------------------------------
@@ -117,22 +175,24 @@ def _reply(conversation_id, reply, state, draft=None, result=None):
 
 
 # --- Точка входа -----------------------------------------------------------
-def handle_message(*, tenant, user, membership, conversation_id, text):
+def handle_message(*, tenant, user, membership, conversation_id, text, language=None):
     brain = get_brain()
     conversation_id = conversation_id or uuid.uuid4().hex
     state = _load(tenant, user, conversation_id)
 
     if state and state.get("phase") in ("collecting", "confirm"):
         return _continue(tenant, user, membership, conversation_id, state, text, brain)
-    return _start(tenant, user, membership, conversation_id, text, brain)
+    return _start(
+        tenant, user, membership, conversation_id, text, brain, _lang_of(language)
+    )
 
 
-def _start(tenant, user, membership, conversation_id, text, brain):
+def _start(tenant, user, membership, conversation_id, text, brain, lang):
     understanding = brain.interpret(text=text)
     if understanding.get("affirmation") == "cancel":
-        return _reply(conversation_id, "Хорошо, отменил.", "cancelled")
+        return _reply(conversation_id, _t(lang, "cancelled"), "cancelled")
     if understanding.get("intent") != "intake":
-        return _reply(conversation_id, _HELP, "collecting")
+        return _reply(conversation_id, _t(lang, "help"), "collecting")
 
     slots = dict(understanding.get("slots") or {})
     wh = _match_warehouse(tenant, text)
@@ -146,24 +206,26 @@ def _start(tenant, user, membership, conversation_id, text, brain):
         "awaiting": None,
         "slots": slots,
         "draft_token": None,
+        "lang": lang,
     }
     return _advance(tenant, user, conversation_id, state)
 
 
 def _continue(tenant, user, membership, conversation_id, state, text, brain):
+    lang = state.get("lang", "ru")
     understanding = brain.interpret(text=text, context=state)
     affirmation = understanding.get("affirmation")
 
     if affirmation == "cancel":
         _clear(tenant, user, conversation_id)
-        return _reply(conversation_id, "Хорошо, отменил.", "cancelled")
+        return _reply(conversation_id, _t(lang, "cancelled"), "cancelled")
 
     if state["phase"] == "confirm":
         if affirmation == "yes":
             return _execute(tenant, user, membership, conversation_id, state)
         if affirmation == "no":
             _clear(tenant, user, conversation_id)
-            return _reply(conversation_id, "Хорошо, отменил.", "cancelled")
+            return _reply(conversation_id, _t(lang, "cancelled"), "cancelled")
         return _confirm_reply(tenant, user, conversation_id, state)
 
     awaiting = state.get("awaiting")
@@ -184,7 +246,7 @@ def _continue(tenant, user, membership, conversation_id, state, text, brain):
             _save(tenant, user, conversation_id, state)
             names = ", ".join(f"«{w.name}»" for w in _active_warehouses(tenant))
             return _reply(
-                conversation_id, f"На какой склад? Есть: {names}.", "collecting"
+                conversation_id, _t(lang, "ask_warehouse_pick", names=names), "collecting"
             )
         else:
             wh = _match_warehouse(tenant, text)
@@ -197,9 +259,7 @@ def _continue(tenant, user, membership, conversation_id, state, text, brain):
         if wh is None:
             names = ", ".join(f"«{w.name}»" for w in _active_warehouses(tenant))
             return _reply(
-                conversation_id,
-                f"Не нашёл такой склад. Есть: {names}.",
-                "collecting",
+                conversation_id, _t(lang, "warehouse_not_found", names=names), "collecting"
             )
         slots["warehouse_id"] = wh.id
         slots["warehouse_name"] = wh.name
@@ -210,12 +270,9 @@ def _continue(tenant, user, membership, conversation_id, state, text, brain):
     elif awaiting in ("quantity", "sale_price", "purchase_price"):
         n = first_number(text)
         if n is None:
-            return _reply(
-                conversation_id, "Не понял число, повторите пожалуйста.", "collecting"
-            )
+            return _reply(conversation_id, _t(lang, "bad_number"), "collecting")
         slots[awaiting] = str(n)
     else:
-        # На всякий случай подмешиваем распознанные поля.
         for k, v in (understanding.get("slots") or {}).items():
             if v and not slots.get(k):
                 slots[k] = v
@@ -224,28 +281,27 @@ def _continue(tenant, user, membership, conversation_id, state, text, brain):
 
 
 def _advance(tenant, user, conversation_id, state):
+    lang = state.get("lang", "ru")
     slots = state["slots"]
 
-    for field, question in _REQUIRED_STEPS:
+    for field in _REQUIRED_FIELDS:
         if not slots.get(field):
             state["awaiting"] = field
             _save(tenant, user, conversation_id, state)
-            return _reply(conversation_id, question, "collecting")
+            return _reply(conversation_id, _t(lang, f"ask_{field}"), "collecting")
 
     if not slots.get("warehouse_id"):
         warehouses = _active_warehouses(tenant)
         if not warehouses:
             _clear(tenant, user, conversation_id)
-            return _reply(
-                conversation_id,
-                "Сначала создайте склад, потом повторите приёмку.",
-                "cancelled",
-            )
+            return _reply(conversation_id, _t(lang, "no_warehouse"), "cancelled")
         proposed = warehouses[0]
         slots["_proposed_wh"] = proposed.id
         state["awaiting"] = "warehouse"
         _save(tenant, user, conversation_id, state)
-        return _reply(conversation_id, f"На склад «{proposed.name}»?", "collecting")
+        return _reply(
+            conversation_id, _t(lang, "ask_warehouse_one", name=proposed.name), "collecting"
+        )
 
     state["phase"] = "confirm"
     state["awaiting"] = "confirm"
@@ -273,30 +329,30 @@ def _draft_payload(state):
 
 
 def _confirm_reply(tenant, user, conversation_id, state):
+    lang = state.get("lang", "ru")
     slots = state["slots"]
-    parts = [f"Создать товар «{slots.get('name')}»"]
+    parts = [_t(lang, "confirm_create", name=slots.get("name"))]
     attrs = [a for a in (slots.get("color"), slots.get("size")) if a]
     if attrs:
         parts.append("(" + ", ".join(attrs) + ")")
-    parts.append(f"и оприходовать {slots.get('quantity')} шт")
-    parts.append(f"на склад «{slots.get('warehouse_name')}»")
+    parts.append(_t(lang, "confirm_intake", qty=slots.get("quantity")))
+    parts.append(_t(lang, "confirm_warehouse", name=slots.get("warehouse_name")))
     prices = []
     if slots.get("purchase_price"):
-        prices.append(f"закуп {slots['purchase_price']}")
+        prices.append(_t(lang, "purchase", v=slots["purchase_price"]))
     if slots.get("sale_price"):
-        prices.append(f"продажа {slots['sale_price']}")
+        prices.append(_t(lang, "sale", v=slots["sale_price"]))
     tail = f" ({', '.join(prices)})" if prices else ""
     reply = " ".join(parts) + tail + "?"
     return _reply(conversation_id, reply, "confirm", draft=_draft_payload(state))
 
 
 def _execute(tenant, user, membership, conversation_id, state):
+    lang = state.get("lang", "ru")
     role = getattr(membership, "role", None)
     if role not in _INTAKE_ROLES:
         _clear(tenant, user, conversation_id)
-        return _reply(
-            conversation_id, "Недостаточно прав для приёмки товара.", "cancelled"
-        )
+        return _reply(conversation_id, _t(lang, "no_permission"), "cancelled")
 
     slots = state["slots"]
     data = {
@@ -312,7 +368,7 @@ def _execute(tenant, user, membership, conversation_id, state):
         product = quick_create_product(tenant=tenant, data=data)
     except ValidationError as exc:
         _clear(tenant, user, conversation_id)
-        return _reply(conversation_id, f"Не получилось: {exc.detail}", "cancelled")
+        return _reply(conversation_id, _t(lang, "exec_error", detail=exc.detail), "cancelled")
 
     state["phase"] = "done"
     state["awaiting"] = None
@@ -324,8 +380,11 @@ def _execute(tenant, user, membership, conversation_id, state):
         "quantity": slots.get("quantity"),
         "warehouse_name": slots.get("warehouse_name"),
     }
-    reply = (
-        f"Готово: создан товар «{product.name}», оприходовано "
-        f"{slots.get('quantity')} шт на склад «{slots.get('warehouse_name')}»."
+    reply = _t(
+        lang,
+        "done",
+        name=product.name,
+        qty=slots.get("quantity"),
+        wh=slots.get("warehouse_name"),
     )
     return _reply(conversation_id, reply, "done", result=result)

@@ -83,6 +83,7 @@ export function AssistantPage() {
         await api.post<AssistantResponse>("/assistant/message/", {
           conversation_id: convIdRef.current ?? undefined,
           text: payload.text,
+          language,
         })
       ).data;
     },
