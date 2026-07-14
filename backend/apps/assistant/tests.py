@@ -2,7 +2,7 @@ from decimal import Decimal
 
 from django.core.cache import cache
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from rest_framework.test import APIClient
 
 from apps.catalog.models import Product
@@ -121,8 +121,10 @@ class AssistantCollectingTests(AssistantBase):
         self.assertIn("прими", out["reply"].lower())
         self.assertEqual(Product.objects.filter(tenant=self.tenant).count(), 0)
 
+    @override_settings(STT_PROVIDER="mock")
     def test_audio_is_transcribed_and_starts_intake(self):
-        # STT_PROVIDER=mock в тестах → фиксированный текст с товаром.
+        # Форсируем mock-STT, чтобы тест не зависел от настройки сервера
+        # (в проде STT_PROVIDER может быть "google" с реальным ffmpeg).
         audio = SimpleUploadedFile("a.webm", b"0000", content_type="audio/webm")
         resp = self.client.post(URL, {"audio": audio}, format="multipart")
         self.assertEqual(resp.status_code, 200, resp.content)
