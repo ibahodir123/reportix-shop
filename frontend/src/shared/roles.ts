@@ -22,6 +22,7 @@ export const NAV: NavEntry[] = [
   { key: "/receiving", label: "Приёмка", roles: MANAGE_ROLES },
   { key: "/products", label: "Товары", roles: MANAGE_ROLES },
   { key: "/voice", label: "Голосовой ввод", roles: MANAGE_ROLES },
+  { key: "/assistant", label: "Помощник", roles: MANAGE_ROLES },
 ];
 
 export function visibleNav(role: Role | null | undefined): NavEntry[] {

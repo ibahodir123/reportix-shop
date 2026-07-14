@@ -4,6 +4,7 @@ import {
   DashboardOutlined,
   ImportOutlined,
   LogoutOutlined,
+  RobotOutlined,
   RollbackOutlined,
   ShopOutlined,
   ShoppingCartOutlined,
@@ -27,6 +28,7 @@ const ICONS: Record<string, ReactNode> = {
   "/receiving": <ImportOutlined />,
   "/products": <AppstoreOutlined />,
   "/voice": <AudioOutlined />,
+  "/assistant": <RobotOutlined />,
 };
 
 export function AppLayout() {

@@ -8,14 +8,15 @@ describe("visibleNav (видимость меню по роли)", () => {
   });
 
   it("менеджер видит все разделы", () => {
-    expect(visibleNav("manager").length).toBe(6);
+    expect(visibleNav("manager").length).toBe(7);
   });
 
-  it("владелец видит Товары/Приёмку/Голосовой ввод", () => {
+  it("владелец видит Товары/Приёмку/Голосовой ввод/Помощника", () => {
     const keys = visibleNav("owner").map((n) => n.key);
     expect(keys).toContain("/products");
     expect(keys).toContain("/receiving");
     expect(keys).toContain("/voice");
+    expect(keys).toContain("/assistant");
   });
 
   it("без роли меню пустое", () => {

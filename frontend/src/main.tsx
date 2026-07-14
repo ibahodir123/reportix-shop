@@ -12,6 +12,7 @@ import { AppLayout } from "./shared/Layout";
 import { RequireRole } from "./shared/RequireRole";
 import { useAuth } from "./shared/auth";
 import { MANAGE_ROLES } from "./shared/roles";
+import { AssistantPage } from "./pages/AssistantPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { LoginPage } from "./pages/LoginPage";
 import { PosPage } from "./pages/PosPage";
@@ -69,6 +70,14 @@ const router = createBrowserRouter([
         element: (
           <RequireRole roles={MANAGE_ROLES}>
             <VoicePage />
+          </RequireRole>
+        ),
+      },
+      {
+        path: "assistant",
+        element: (
+          <RequireRole roles={MANAGE_ROLES}>
+            <AssistantPage />
           </RequireRole>
         ),
       },
