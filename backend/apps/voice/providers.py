@@ -55,6 +55,12 @@ _STT_PHRASES = [
     "восемьдесят", "девяносто", "сто", "двести", "триста",
     # частые товары
     "футболка", "футболок", "кроссовки", "кроссовок", "джинсы", "рубашка",
+    # узбекский: команды, цвета, размеры, единицы, числа, товары
+    "qabul", "qabul qil", "kirim", "qo'shish", "tannarx", "xarid", "sotuv", "narx",
+    "ko'k", "qizil", "oq", "qora", "yashil", "sariq", "kulrang",
+    "o'lcham", "kichik", "o'rta", "katta", "dona", "ta", "ming",
+    "yigirma", "o'ttiz", "qirq", "ellik", "oltmish", "yetmish", "sakson", "yuz",
+    "futbolka", "krossovka", "shim", "ko'ylak",
 ]
 
 
