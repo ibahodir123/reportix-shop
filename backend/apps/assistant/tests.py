@@ -9,6 +9,7 @@ from apps.catalog.models import Product
 from apps.inventory.models import Stock, StockMovement, Warehouse
 from apps.tenants.models import Branch, Membership, Tenant, User
 
+from .brain import RuleBrain
 from .engine import handle_message
 
 URL = "/api/assistant/message/"
@@ -129,6 +130,18 @@ class AssistantCollectingTests(AssistantBase):
         resp = self.client.post(URL, {"audio": audio}, format="multipart")
         self.assertEqual(resp.status_code, 200, resp.content)
         self.assertEqual(resp.json()["state"], "collecting")
+
+
+class AssistantBrainTests(TestCase):
+    def test_command_words_not_in_product_name(self):
+        # Распознавание речи может услышать команду как «Примет»/«Оприходуй» —
+        # такие формы не должны попадать в название товара.
+        for cmd in ("Прими", "Примет", "Оприходуй"):
+            out = RuleBrain().interpret(
+                text=f"{cmd} футболку синяя закуп 45 тысяч продажа 79 тысяч 20 штук"
+            )
+            self.assertEqual(out["intent"], "intake")
+            self.assertEqual((out["slots"]["name"] or "").lower(), "футболку", cmd)
 
 
 class AssistantPermissionTests(AssistantBase):
