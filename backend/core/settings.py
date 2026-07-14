@@ -55,6 +55,7 @@ INSTALLED_APPS = [
     "apps.inventory",
     "apps.sales",
     "apps.voice",
+    "apps.assistant",
 ]
 
 MIDDLEWARE = [
@@ -192,6 +193,16 @@ if not DEBUG:
 # Провайдер распознавания речи: "mock" (по умолчанию, без ключей) | "google".
 STT_PROVIDER = env("STT_PROVIDER", default="mock")
 GOOGLE_STT_MODEL = env("GOOGLE_STT_MODEL", default="default")
+
+# --- Assistant (разговорный ИИ) --------------------------------------------
+# «Мозг» помощника: "rule" (по умолчанию, без ключей и интернета — на нём тесты)
+# | "claude_vertex" (Claude через Google Cloud Vertex AI, один счёт GCP)
+# | "claude" (Claude по прямому ключу Anthropic). См. docs/ASSISTANT.md.
+ASSISTANT_BRAIN = env("ASSISTANT_BRAIN", default="rule")
+ASSISTANT_MODEL = env("ASSISTANT_MODEL", default="claude-opus-4-8")
+VERTEX_PROJECT_ID = env("VERTEX_PROJECT_ID", default="")
+VERTEX_REGION = env("VERTEX_REGION", default="us-east5")
+ANTHROPIC_API_KEY = env("ANTHROPIC_API_KEY", default="")
 
 # --- Background jobs (django-rq) -------------------------------------------
 RQ_REDIS_URL = env("RQ_REDIS_URL", default=env("REDIS_URL", default="redis://redis:6379/1"))
