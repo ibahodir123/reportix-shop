@@ -18,6 +18,7 @@ interface AssistantResponse {
   state: ChatState;
   draft: unknown;
   result: unknown;
+  transcript?: string;
 }
 
 export interface ChatMsg {
@@ -86,7 +87,15 @@ export function AssistantPage() {
       ).data;
     },
     onSuccess: (data) => {
-      setMessages((m) => [...m, { role: "assistant", text: data.reply }]);
+      setMessages((m) => {
+        const next = [...m];
+        // Голос: показываем распознанный текст — видно, что расслышал Google.
+        if (data.transcript) {
+          next.push({ role: "user", text: "🎤 " + data.transcript });
+        }
+        next.push({ role: "assistant", text: data.reply });
+        return next;
+      });
       setLastState(data.state);
       // После завершения/отмены — начинаем новый диалог со следующего сообщения.
       convIdRef.current =
@@ -116,7 +125,7 @@ export function AssistantPage() {
       recorder.onstop = () => {
         const blob = new Blob(chunksRef.current, { type: "audio/webm" });
         stream.getTracks().forEach((t) => t.stop());
-        setMessages((m) => [...m, { role: "user", text: "🎤 Голосовое сообщение" }]);
+        // Пузырь с распознанным текстом добавится в onSuccess (из ответа).
         sendMut.mutate({ audio: blob });
       };
       recorder.start();

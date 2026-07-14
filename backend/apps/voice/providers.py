@@ -38,6 +38,25 @@ class MockSTTProvider(STTProvider):
         return self.SAMPLE
 
 
+# Подсказки распознаванию речи (speech adaptation): доменные слова, которые
+# Google должен «ожидать» — повышает точность цветов, размеров, единиц и чисел.
+_STT_PHRASES = [
+    # команды
+    "прими", "оприходуй", "приходуй", "закуп", "закупка", "продажа", "цена",
+    # цвета
+    "синий", "синяя", "синих", "красный", "красная", "красных", "белый", "белая",
+    "чёрный", "чёрная", "зелёный", "жёлтый", "серый", "розовый", "голубой",
+    # размеры и единицы
+    "размер", "маленький", "средний", "большой", "штук", "штука", "штуки",
+    "тысяч", "тысячи", "тысяча", "миллион",
+    # частые числа словами
+    "двадцать", "тридцать", "сорок", "пятьдесят", "шестьдесят", "семьдесят",
+    "восемьдесят", "девяносто", "сто", "двести", "триста",
+    # частые товары
+    "футболка", "футболок", "кроссовки", "кроссовок", "джинсы", "рубашка",
+]
+
+
 class GoogleCloudSTTProvider(STTProvider):
     """
     Google Cloud Speech-to-Text. Узбекский — код uz-UZ (лучшее качество на
@@ -78,6 +97,9 @@ class GoogleCloudSTTProvider(STTProvider):
             language_code=language,
             enable_automatic_punctuation=True,
             model=getattr(settings, "GOOGLE_STT_MODEL", "default"),
+            # Подсказки: смещают распознавание к доменным словам (цвета, размеры,
+            # «тысяч», «штук», числа) — меньше теряется «синий» и цифры.
+            speech_contexts=[speech.SpeechContext(phrases=_STT_PHRASES, boost=15.0)],
         )
         response = client.recognize(config=config, audio=audio)
         parts = [r.alternatives[0].transcript for r in response.results if r.alternatives]

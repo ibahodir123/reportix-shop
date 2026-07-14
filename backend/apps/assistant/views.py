@@ -38,12 +38,14 @@ class AssistantMessageView(APIView):
 
         text = (data.get("text") or "").strip()
         audio = data.get("audio")
+        from_audio = False
         if not text and audio is not None:
             if audio.size > settings.VOICE_MAX_AUDIO_BYTES:
                 mb = settings.VOICE_MAX_AUDIO_BYTES // (1024 * 1024)
                 raise PayloadTooLarge(f"Аудиофайл слишком большой (макс {mb} МБ).")
             provider = get_stt_provider()
             text = provider.transcribe(audio.read(), language=data.get("language", "uz-UZ"))
+            from_audio = True
 
         result = handle_message(
             tenant=tenant,
@@ -52,4 +54,8 @@ class AssistantMessageView(APIView):
             conversation_id=data.get("conversation_id"),
             text=text,
         )
+        # Для голоса возвращаем распознанный текст — чтобы показать в чате, что
+        # именно расслышал распознаватель (видно, где теряется слово).
+        if from_audio:
+            result["transcript"] = text
         return Response(result)
