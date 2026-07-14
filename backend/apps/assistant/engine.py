@@ -33,8 +33,9 @@ from .brain import get_brain
 STATE_TTL = 30 * 60  # 30 минут
 _INTAKE_ROLES = {OWNER, MANAGER}
 
-# Обязательные текстово-числовые поля (порядок дозапроса) — вопросы в _TEXTS.
-_REQUIRED_FIELDS = ["name", "quantity", "sale_price"]
+# Обязательные поля (порядок дозапроса) — вопросы в _TEXTS. Количество —
+# необязательно: без него создаётся карточка товара, с ним — приход на склад.
+_REQUIRED_FIELDS = ["name", "sale_price"]
 
 # --- Локализация ответов ---------------------------------------------------
 _TEXTS = {
@@ -62,6 +63,7 @@ _TEXTS = {
         "done": (
             "Готово: создан товар «{name}», оприходовано {qty} шт на склад «{wh}»."
         ),
+        "done_card": "Готово: создан товар «{name}».",
     },
     "uz": {
         "help": (
@@ -87,6 +89,7 @@ _TEXTS = {
         "done": (
             "Tayyor: «{name}» tovari yaratildi, «{wh}» omboriga {qty} dona qabul qilindi."
         ),
+        "done_card": "Tayyor: «{name}» tovari yaratildi.",
     },
 }
 
@@ -290,12 +293,14 @@ def _advance(tenant, user, conversation_id, state):
             _save(tenant, user, conversation_id, state)
             return _reply(conversation_id, _t(lang, f"ask_{field}"), "collecting")
 
-    if not slots.get("warehouse_id"):
+    # Склад нужен только если названо количество (иначе — просто карточка товара).
+    qty = slots.get("quantity")
+    if qty and _dec(qty) > 0 and not slots.get("warehouse_id"):
         warehouses = _active_warehouses(tenant)
         if not warehouses:
-            _clear(tenant, user, conversation_id)
-            return _reply(conversation_id, _t(lang, "no_warehouse"), "cancelled")
-        if len(warehouses) == 1:
+            # Складов нет — создаём только карточку товара (без прихода).
+            slots["quantity"] = None
+        elif len(warehouses) == 1:
             # Единственный склад — выбираем сам, без лишнего голосового «да».
             slots["warehouse_id"] = warehouses[0].id
             slots["warehouse_name"] = warehouses[0].name
@@ -339,8 +344,10 @@ def _confirm_reply(tenant, user, conversation_id, state):
     attrs = [a for a in (slots.get("color"), slots.get("size")) if a]
     if attrs:
         parts.append("(" + ", ".join(attrs) + ")")
-    parts.append(_t(lang, "confirm_intake", qty=slots.get("quantity")))
-    parts.append(_t(lang, "confirm_warehouse", name=slots.get("warehouse_name")))
+    qty = slots.get("quantity")
+    if qty and _dec(qty) > 0 and slots.get("warehouse_name"):
+        parts.append(_t(lang, "confirm_intake", qty=qty))
+        parts.append(_t(lang, "confirm_warehouse", name=slots.get("warehouse_name")))
     prices = []
     if slots.get("purchase_price"):
         prices.append(_t(lang, "purchase", v=slots["purchase_price"]))
@@ -384,11 +391,9 @@ def _execute(tenant, user, membership, conversation_id, state):
         "quantity": slots.get("quantity"),
         "warehouse_name": slots.get("warehouse_name"),
     }
-    reply = _t(
-        lang,
-        "done",
-        name=product.name,
-        qty=slots.get("quantity"),
-        wh=slots.get("warehouse_name"),
-    )
+    qty = slots.get("quantity")
+    if qty and _dec(qty) > 0 and slots.get("warehouse_name"):
+        reply = _t(lang, "done", name=product.name, qty=qty, wh=slots.get("warehouse_name"))
+    else:
+        reply = _t(lang, "done_card", name=product.name)
     return _reply(conversation_id, reply, "done", result=result)

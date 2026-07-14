@@ -72,6 +72,17 @@ class AssistantHappyPathTests(AssistantBase):
         self.say("Подтверждаю", step1["conversation_id"])
         self.assertEqual(Product.objects.filter(tenant=self.tenant).count(), 1)
 
+    def test_terse_listing_creates_card_without_stock(self):
+        # Короткое перечисление без количества → карточка товара, без прихода.
+        step1 = self.say("Футболка L синий 45000 75000")
+        self.assertEqual(step1["state"], "confirm")
+        self.assertIsNone(step1["draft"]["product"]["quantity"])
+
+        step2 = self.say("Подтверждаю", step1["conversation_id"])
+        self.assertEqual(step2["state"], "done")
+        product = Product.objects.get(tenant=self.tenant)
+        self.assertFalse(Stock.objects.filter(variant__product=product).exists())
+
     def test_double_confirm_creates_single_product(self):
         cid = self.say(self.PHRASE)["conversation_id"]
         self.say("Подтверждаю", cid)
@@ -82,18 +93,16 @@ class AssistantHappyPathTests(AssistantBase):
 
 
 class AssistantCollectingTests(AssistantBase):
-    def test_asks_for_missing_quantity_then_price(self):
+    def test_asks_for_missing_price_then_confirms_card(self):
         step1 = self.say("Создай товар ручка")
         self.assertEqual(step1["state"], "collecting")
-        self.assertIn("штук", step1["reply"].lower())
+        self.assertIn("цен", step1["reply"].lower())
         cid = step1["conversation_id"]
 
-        step2 = self.say("20", cid)
-        self.assertIn("цен", step2["reply"].lower())
-
-        step3 = self.say("5 тысяч", cid)
-        # Дальше — предложение склада.
-        self.assertIn("склад", step3["reply"].lower())
+        # Без количества — сразу подтверждение (карточка товара, без прихода).
+        step2 = self.say("5 тысяч", cid)
+        self.assertEqual(step2["state"], "confirm")
+        self.assertIsNone(step2["draft"]["product"]["quantity"])
 
     def test_cancel_at_confirm(self):
         cid = self.say(AssistantHappyPathTests.PHRASE)["conversation_id"]
