@@ -69,7 +69,8 @@
 | Значение | Что это | Когда |
 |---|---|---|
 | `rule` (по умолчанию) | Детерминированные правила + существующий NLU | Работает **без ключей и без интернета**; на нём идут все тесты |
-| `claude_vertex` | Claude через Google Cloud Vertex AI | Один счёт GCP, отдельный аккаунт Anthropic не нужен |
+| `gemini` | Gemini через Google Cloud Vertex AI | Один счёт GCP, **без анкет Model Garden и гео-ограничений** — рабочий вариант для Узбекистана |
+| `claude_vertex` | Claude через Google Cloud Vertex AI | Требует одобрения Model Garden (Anthropic); для UZ страна недоступна в форме |
 | `claude` | Claude по прямому ключу Anthropic | Отдельный ключ `ANTHROPIC_API_KEY` |
 
 Claude-мозг при любой ошибке (нет доступа, плохой ответ) **откатывается на

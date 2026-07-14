@@ -45,6 +45,14 @@ services:
       CSRF_COOKIE_SECURE: ${CSRF_COOKIE_SECURE:-False}
       STT_PROVIDER: ${STT_PROVIDER:-mock}
       GOOGLE_STT_MODEL: ${GOOGLE_STT_MODEL:-default}
+      # Помощник (разговорный ИИ). ADC на VM даёт доступ к Vertex (Gemini/Claude).
+      ASSISTANT_BRAIN: ${ASSISTANT_BRAIN:-rule}
+      VERTEX_PROJECT_ID: ${VERTEX_PROJECT_ID:-}
+      GEMINI_LOCATION: ${GEMINI_LOCATION:-us-central1}
+      ASSISTANT_GEMINI_MODEL: ${ASSISTANT_GEMINI_MODEL:-gemini-2.5-flash}
+      ASSISTANT_MODEL: ${ASSISTANT_MODEL:-claude-opus-4-8}
+      VERTEX_REGION: ${VERTEX_REGION:-us-east5}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
     volumes:
       - static_data:/app/static
       - media_data:/app/media

@@ -250,10 +250,67 @@ class ClaudeApiBrain(_ClaudeBrainBase):
         return anthropic.Anthropic(api_key=key)
 
 
+class GeminiVertexBrain(AssistantBrain):
+    """
+    Gemini через Google Cloud Vertex AI (аутентификация через GCP ADC).
+
+    В отличие от Claude на Vertex не требует одобрения Model Garden и не имеет
+    гео-ограничений Anthropic — работает на любом проекте Google Cloud с
+    включённым Vertex AI API. При любой ошибке — откат на RuleBrain.
+    """
+
+    name = "gemini"
+
+    def interpret(self, *, text: str, context: dict | None = None) -> dict:
+        try:
+            return self._call(text=text, context=context)
+        except Exception:  # noqa: BLE001 — резервный путь важнее типа ошибки
+            logger.exception("assistant Gemini brain failed; falling back to rules")
+            return RuleBrain().interpret(text=text, context=context)
+
+    def _call(self, *, text: str, context: dict | None) -> dict:
+        from google import genai  # ленивый импорт
+        from google.genai import types
+
+        client = genai.Client(
+            vertexai=True,
+            project=getattr(settings, "VERTEX_PROJECT_ID", "") or None,
+            location=getattr(settings, "GEMINI_LOCATION", "us-central1"),
+        )
+        user = text or ""
+        if context and context.get("awaiting"):
+            user = f"[ожидается ответ на: {context['awaiting']}]\n{user}"
+        model = getattr(settings, "ASSISTANT_GEMINI_MODEL", "gemini-2.5-flash")
+        resp = client.models.generate_content(
+            model=model,
+            contents=user,
+            config=types.GenerateContentConfig(
+                system_instruction=_LLM_SYSTEM,
+                response_mime_type="application/json",
+                temperature=0,
+            ),
+        )
+        data = json.loads(resp.text)
+        slots = data.get("slots") or {}
+        return {
+            "intent": data.get("intent") or "unknown",
+            "affirmation": data.get("affirmation"),
+            "slots": {
+                "name": slots.get("name"),
+                "color": slots.get("color"),
+                "size": slots.get("size"),
+                "purchase_price": _num_str(slots.get("purchase_price")),
+                "sale_price": _num_str(slots.get("sale_price")),
+                "quantity": _num_str(slots.get("quantity")),
+            },
+        }
+
+
 _BRAINS = {
     "rule": RuleBrain,
     "claude_vertex": ClaudeVertexBrain,
     "claude": ClaudeApiBrain,
+    "gemini": GeminiVertexBrain,
 }
 
 

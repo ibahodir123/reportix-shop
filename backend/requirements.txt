@@ -9,3 +9,4 @@ rq==1.16.2
 gunicorn==25.3.0
 google-cloud-speech==2.40.0
 anthropic[vertex]>=0.40
+google-genai>=1.0

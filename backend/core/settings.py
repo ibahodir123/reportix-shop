@@ -196,13 +196,19 @@ GOOGLE_STT_MODEL = env("GOOGLE_STT_MODEL", default="default")
 
 # --- Assistant (разговорный ИИ) --------------------------------------------
 # «Мозг» помощника: "rule" (по умолчанию, без ключей и интернета — на нём тесты)
-# | "claude_vertex" (Claude через Google Cloud Vertex AI, один счёт GCP)
+# | "gemini" (Gemini через Google Cloud Vertex AI — без анкет/гео-ограничений)
+# | "claude_vertex" (Claude через Vertex — требует одобрения Model Garden)
 # | "claude" (Claude по прямому ключу Anthropic). См. docs/ASSISTANT.md.
 ASSISTANT_BRAIN = env("ASSISTANT_BRAIN", default="rule")
+# Claude
 ASSISTANT_MODEL = env("ASSISTANT_MODEL", default="claude-opus-4-8")
-VERTEX_PROJECT_ID = env("VERTEX_PROJECT_ID", default="")
 VERTEX_REGION = env("VERTEX_REGION", default="us-east5")
 ANTHROPIC_API_KEY = env("ANTHROPIC_API_KEY", default="")
+# Gemini (Vertex)
+ASSISTANT_GEMINI_MODEL = env("ASSISTANT_GEMINI_MODEL", default="gemini-2.5-flash")
+GEMINI_LOCATION = env("GEMINI_LOCATION", default="us-central1")
+# Общее для Vertex (Claude и Gemini) — ID проекта Google Cloud (ADC на сервере).
+VERTEX_PROJECT_ID = env("VERTEX_PROJECT_ID", default="")
 
 # --- Background jobs (django-rq) -------------------------------------------
 RQ_REDIS_URL = env("RQ_REDIS_URL", default=env("REDIS_URL", default="redis://redis:6379/1"))
